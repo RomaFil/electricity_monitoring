@@ -1,0 +1,26 @@
+# /etc/power-guard.conf — налаштування power-guard (права 600, власник root)
+
+# Куди слати звіти: дашборд на VPS через WireGuard
+SERVER_URL=http://10.0.0.1:3003/api/power
+# Токен пристрою (сам токен; на VPS у .env лежить лише його sha256-хеш)
+TOKEN=
+
+# Як часто слати стан, секунд
+REPORT_INTERVAL=30
+# Через скільки хвилин без зарядки почати сон
+SLEEP_AFTER_MIN=10
+# Або раніше, якщо заряд впав до цього рівня, %
+SLEEP_BELOW_PCT=30
+# Скільки спати між перевірками, секунд (на VPS HOME_WAKE_INTERVAL_S має бути таким самим)
+WAKE_INTERVAL=300
+# При такому заряді — штатне вимкнення, %
+CRITICAL_PCT=7
+# true = ніколи не спати (якщо ноутбук має працювати весь час)
+KEEP_AWAKE=false
+# Скільки чекати мережу після пробудження, секунд
+NET_WAIT_S=30
+
+AC_PATH=/sys/class/power_supply/ADP1
+BAT_PATH=/sys/class/power_supply/BAT1
+STATE_DIR=/var/lib/power-guard
+POWEROFF_CMD=systemctl poweroff

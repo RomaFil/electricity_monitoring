@@ -1,0 +1,8 @@
+.env
+*.db
+*.db-*
+__pycache__/
+backups/
+*.log
+.pio/
+firmware/**/secrets.h

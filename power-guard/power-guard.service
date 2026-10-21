@@ -1,0 +1,14 @@
+[Unit]
+Description=power-guard: charger watch and sleep loop for Svitlo-Local
+After=network-online.target wg-quick@wg-svitlo.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/local/lib/power-guard/power_guard.py
+Restart=always
+RestartSec=10
+# root is needed for rtcwake and poweroff
+
+[Install]
+WantedBy=multi-user.target
