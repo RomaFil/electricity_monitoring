@@ -106,6 +106,8 @@ class Direct:
 
 def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    # httpx logs every request URL, and the URL contains the secret check UUID
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     con = db.connect()
     con.isolation_level = None  # autocommit; every statement is its own transaction
     now = time.time()
