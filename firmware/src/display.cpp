@@ -75,6 +75,12 @@ static void lcdInit() {
   command(0x01);   // clear
   delay(2);
   command(0x06);   // left to right
+  // Own character in CGRAM slot 0: a small round dot (Wi-Fi indicator). Printed as code 8,
+  // which the LCD maps to slot 0 too, so the String never contains a 0 byte.
+  static const uint8_t DOT[8] = {0x00, 0x00, 0x00, 0x0E, 0x0E, 0x0E, 0x00, 0x00};
+  command(0x40);
+  for (uint8_t b : DOT) send(b, RS);
+  command(0x80);
   shown[0] = shown[1] = "";
 }
 
@@ -108,11 +114,25 @@ static String line1() {
   return s;
 }
 
+static const char WIFI_DOT = 8;  // custom dot, see lcdInit()
+
+// Wi-Fi is reported in words only once after power-on ("WiFi OK" / "no network", 5 s);
+// after that a small dot in the bottom-right corner: lit = Wi-Fi connected, empty = not.
 static String line2() {
+  static uint32_t firstConnectMs = 0, noNetMs = 0;
+  uint32_t now = millis();
+  bool wifi = WiFi.status() == WL_CONNECTED;
   char buf[24];
-  bool statusScreen = !env.ok || (millis() / 5000) % 2;
-  if (!statusScreen) {
-    String s;
+
+  if (st.apActive && !st.cfg.hasNetworks()) return F("AP SVITLO-LOCAL");  // first setup: say how to connect
+  if (wifi && !firstConnectMs) firstConnectMs = now;
+  if (!firstConnectMs && !noNetMs && now > 30000) noNetMs = now;
+  if (!firstConnectMs && !noNetMs) return F("WiFi...");
+  if (firstConnectMs && now - firstConnectMs < 5000) return F("WiFi OK");
+  if (!firstConnectMs && noNetMs && now - noNetMs < 5000) return F("WiFi: no network");
+
+  String s;
+  if (env.ok) {
     if (!isnan(env.h)) {
       snprintf(buf, sizeof(buf), "%3.0f%%", env.h);
       s = buf;
@@ -123,12 +143,11 @@ static String line2() {
       snprintf(buf, sizeof(buf), "  %4.0fhPa", env.p);
       s += buf;
     }
-    return s;
   }
-  if (WiFi.status() != WL_CONNECTED) return st.apActive ? F("AP SVITLO-LOCAL") : F("WiFi: no network");
-  const char *ping = !st.lastAttemptMs ? "PING .." : st.failsInRow ? "PING ERR" : "PING OK";
-  snprintf(buf, sizeof(buf), "WiFi %d %s", WiFi.RSSI(), ping);
-  return buf;
+  while (s.length() < 15) s += ' ';
+  s = s.substring(0, 15);
+  s += wifi ? WIFI_DOT : ' ';
+  return s;
 }
 
 static void describe() {

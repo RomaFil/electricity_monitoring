@@ -5,7 +5,7 @@
 // powered from VIN (5 V). It is kept off the sensor bus (D1/D2) because the backpack may pull the
 // lines up to 5 V, which a 3.3 V BME280 does not survive.
 //   line 1: 22:05:31  23.7°C
-//   line 2: 54%  1012hPa   <-> every 5 s ->   WiFi -60 PING OK
+//   line 2: 54%  1012hPa      •   (dot bottom-right = Wi-Fi connected; words only for 5 s after power-on)
 extern String displayInfo;  // what was found, for the status page
 void displayBegin();
 void displayLoop();
