@@ -146,12 +146,24 @@ class GuardTest(unittest.TestCase):
         self.assertIn("drain_pct_per_h", ends[0]["detail"])
         self.assertEqual(self.server.types().count("sleep_start"), self.server.types().count("sleep_end"))
 
+    def test_stays_awake_after_wake_before_next_sleep(self):
+        """The laptop reset itself when put back to sleep right after waking: keep MIN_AWAKE_S."""
+        starts = []
+        orig = self.run.__call__
+        self.g.run = lambda args: (starts.append(self.clock.t) if args[0] == "rtcwake" else None, orig(args))[1]
+        self.g.start()
+        self.sys.set(ac=False)
+        self.g.step()
+        self.loop(40 * 60)
+        gaps = [b - a for a, b in zip(starts, starts[1:])]
+        self.assertGreaterEqual(len(gaps), 3)
+        self.assertTrue(all(g >= 300 + 20 for g in gaps), gaps)
+
     def test_low_battery_sleeps_early(self):
         self.g.start()
         self.sys.set(ac=False, battery=25)
-        self.g.step()
-        self.g.step()
-        self.assertEqual(len(self.rtcwake_calls()), 1)
+        self.loop(60)  # 20 s settle after start, then sleep at once (not after 10 min)
+        self.assertGreaterEqual(len(self.rtcwake_calls()), 1)
 
     def test_keep_awake_never_sleeps(self):
         self.g = self.make(KEEP_AWAKE="true")

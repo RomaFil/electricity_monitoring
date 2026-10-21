@@ -40,6 +40,7 @@ DEFAULTS = {
     "CRITICAL_PCT": "7",
     "KEEP_AWAKE": "false",
     "NET_WAIT_S": "30",
+    "MIN_AWAKE_S": "20",
     "AC_PATH": "/sys/class/power_supply/ADP1",
     "BAT_PATH": "/sys/class/power_supply/BAT1",
     "STATE_DIR": "/var/lib/power-guard",
@@ -159,12 +160,16 @@ class Guard:
         self.critical = float(cfg["CRITICAL_PCT"])
         self.keep_awake = cfg["KEEP_AWAKE"].lower() in ("1", "true", "yes")
         self.net_wait = float(cfg["NET_WAIT_S"])
+        # This Samsung reset itself twice when it was put back to sleep less than a second
+        # after waking (21.10.2026). Stay awake a little so the hardware settles first.
+        self.min_awake = float(cfg.get("MIN_AWAKE_S", "20"))
         self.state = NORMAL
         self.lost_at = None
         self.restore_precision = None  # seconds of uncertainty for the next ac_restored
         self.next_report = 0.0
         self.next_sleep_try = 0.0
         self.backoff = 0.0
+        self.woke_at = None
         self.last = {}
 
     # ---------- persistence ----------
@@ -202,6 +207,7 @@ class Guard:
     def start(self):
         """Called once at service start: recover the previous state from disk."""
         now = self.clock()
+        self.woke_at = now  # a fresh boot / restart also gets the settle time before sleeping
         self.last = self.sysfs.read()
         prev = self.store.load_state()
         self.emit("guard_start")
@@ -244,6 +250,9 @@ class Guard:
             elif not self.keep_awake and now >= self.next_sleep_try and (
                     now - (self.lost_at or now) >= self.sleep_after
                     or (r["battery"] is not None and r["battery"] <= self.sleep_below)):
+                settle = 0 if self.woke_at is None else self.woke_at + self.min_awake - now
+                if settle > 0:
+                    return settle  # just woke up: let the hardware settle before the next sleep
                 self._sleep_cycle()
                 self._save()
                 return 0  # check again right after waking
@@ -281,6 +290,7 @@ class Guard:
             self.flush()
             return
         self.backoff = 0.0
+        self.woke_at = t1
         self.last = r = self.sysfs.read()
         slept = t1 - t0
         detail = {"slept_s": round(slept), "battery_before": before}

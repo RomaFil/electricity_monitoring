@@ -46,7 +46,9 @@ def status(last_sample: dict | None, last_ctrl: dict | None, now: float,
     s = last_sample or {}
     out = {"ac": s.get("ac"), "battery": s.get("battery"), "bat_status": s.get("status"),
            "last_report": s.get("ts"), "guard_state": s.get("state")}
-    ctrl_after_sample = last_ctrl and (not s or last_ctrl["ts"] >= s["ts"])
+    # power-guard sends one more sample right after "sleep_start" (same flush), so a sample
+    # a few seconds newer than the control event still belongs to it.
+    ctrl_after_sample = last_ctrl and (not s or last_ctrl["ts"] >= s["ts"] - 30)
 
     if ctrl_after_sample and last_ctrl["type"] == "forced_poweroff":
         out.update(status="off", since=last_ctrl["ts"],

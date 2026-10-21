@@ -23,6 +23,10 @@ class HomeStatusTest(unittest.TestCase):
         self.assertEqual(late["status"], "no_data")
         self.assertIn("banner", late)
 
+    def test_sample_sent_with_sleep_start_still_sleeping(self):
+        ctrl = {"type": "sleep_start", "ts": 200}
+        self.assertEqual(status(sample(200.9, ac=False), ctrl, 400, 120, 300)["status"], "sleeping")
+
     def test_forced_poweroff_banner(self):
         st = status(sample(190, ac=False, battery=7), {"type": "forced_poweroff", "ts": 200}, 5000, 120, 300)
         self.assertEqual(st["status"], "off")

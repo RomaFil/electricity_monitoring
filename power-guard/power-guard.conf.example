@@ -19,6 +19,8 @@ CRITICAL_PCT=7
 KEEP_AWAKE=false
 # Скільки чекати мережу після пробудження, секунд
 NET_WAIT_S=30
+# Скільки щонайменше не спати після пробудження, секунд (ноутбук перезавантажувався, коли засинав одразу)
+MIN_AWAKE_S=20
 
 AC_PATH=/sys/class/power_supply/ADP1
 BAT_PATH=/sys/class/power_supply/BAT1

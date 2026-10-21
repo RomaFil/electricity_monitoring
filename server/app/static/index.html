@@ -3,52 +3,63 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
 <title>Світло</title>
 <style>
 :root {
-  --bg: #f6f6f3; --card: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --line: #e3e3de;
-  --on: #2f9e44; --off: #d9480f; --unk: #a5a5a0; --nolink: #e8b100; --sleep: #5c7cfa;
-  --banner: #fff4e6; --banner-line: #f08c00;
-}
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #161615; --card: #1f1f1d; --text: #ececea; --muted: #9a9a94; --line: #33332f;
-    --on: #51cf66; --off: #ff8a4c; --unk: #6b6b66; --nolink: #ffd43b; --sleep: #91a7ff;
-    --banner: #2b2112; --banner-line: #f59f00;
-  }
+  --bg: #111113; --card: #1b1b1f; --card2: #232328; --text: #ececf0; --muted: #9a9aa3; --line: #2e2e35;
+  --on: #4ed164; --off: #ff6150; --unk: #55555d; --nolink: #f4c430; --sleep: #7c93ff; --accent: #38b6ff;
+  --banner: #2a2113; --banner-line: #f59f00;
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text);
   font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-main { max-width: 980px; margin: 0 auto; padding: 16px; }
-h1 { font-size: 20px; margin: 4px 0 14px; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+main { max-width: 1000px; margin: 0 auto; padding: 16px; }
+h1 { font-size: 22px; margin: 4px 0 14px; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 h1 small { font-size: 12px; font-weight: 400; color: var(--muted); }
-h2 { font-size: 15px; margin: 0 0 10px; }
+h2 { font-size: 16px; margin: 0; }
 .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
-.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin-bottom: 12px; }
-.state { display: flex; align-items: center; gap: 10px; font-size: 19px; font-weight: 600; margin: 4px 0; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-bottom: 12px; }
+.state { display: flex; align-items: center; gap: 10px; font-size: 19px; font-weight: 600; margin: 8px 0 4px; }
 .dot { width: 14px; height: 14px; border-radius: 50%; background: var(--unk); flex: none; }
-.dot.online { background: var(--on); } .dot.offline, .dot.off { background: var(--off); }
-.dot.on_battery { background: var(--off); } .dot.sleeping { background: var(--sleep); }
+.dot.online { background: var(--on); } .dot.offline, .dot.off, .dot.on_battery { background: var(--off); }
+.dot.sleeping { background: var(--sleep); }
 .kv { color: var(--muted); font-size: 13px; }
 .kv b { color: var(--text); font-weight: 500; }
 .banner { background: var(--banner); border: 1px solid var(--banner-line); border-radius: 10px; padding: 10px 14px; margin-bottom: 12px; }
-.tabs { display: flex; gap: 6px; }
-.tabs button { border: 1px solid var(--line); background: transparent; color: var(--text); border-radius: 6px; padding: 3px 10px; cursor: pointer; font: inherit; font-size: 13px; }
-.tabs button.on { background: var(--text); color: var(--bg); }
-.row-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
-.tl-label { font-size: 13px; color: var(--muted); margin: 6px 0 3px; }
-.tl { position: relative; height: 22px; background: var(--on); border-radius: 4px; overflow: hidden; }
-.tl.empty { background: var(--line); }
-.tl span { position: absolute; top: 0; bottom: 0; }
-.tl .outage { background: var(--off); } .tl .unknown { background: var(--unk); } .tl .nolink { background: var(--nolink); }
-.axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 3px; }
-.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 8px; }
-.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+.row-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+.seg { display: inline-flex; background: var(--card2); border-radius: 8px; padding: 2px; }
+.seg button, .nav button { border: 0; background: transparent; color: var(--muted); border-radius: 6px; padding: 4px 12px; cursor: pointer; font: inherit; font-size: 13px; }
+.seg button.on { background: var(--accent); color: #0b0b0d; font-weight: 600; }
+.nav { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: var(--muted); }
+.nav button { background: var(--card2); color: var(--text); padding: 4px 10px; }
+.nav button:disabled { opacity: .35; cursor: default; }
+
+/* weekly chart */
+.week { display: grid; grid-template-columns: 82px 1fr 104px; column-gap: 12px; row-gap: 4px; align-items: center; }
+.wd { font-weight: 600; font-size: 14px; white-space: nowrap; }
+.wd small { color: var(--muted); font-weight: 400; }
+.bar-wrap { padding: 4px 0 0; }
+.bar { position: relative; height: 18px; border-radius: 3px; overflow: hidden; background: var(--card2); }
+.bar span { position: absolute; top: 0; bottom: 0; }
+.light { background: var(--on); } .outage { background: var(--off); } .unknown { background: var(--unk); } .nolink { background: var(--nolink); }
+.ticks { position: relative; height: 16px; border-top: 2px solid #3a3a42; margin-top: 3px; }
+.ticks i { position: absolute; top: -2px; width: 2px; height: 6px; background: #3a3a42; }
+.ticks em { position: absolute; top: 4px; transform: translateX(-50%); font-style: normal; font-size: 10px; color: var(--muted); }
+.tot { font-size: 13px; line-height: 1.25; white-space: nowrap; }
+.tot .l { color: var(--on); font-weight: 600; }
+.tot .o { color: var(--off); }
+.legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin: 14px 0 6px; }
+.legend i { display: inline-block; width: 12px; height: 12px; border-radius: 2px; margin-right: 6px; vertical-align: -2px; }
+ul.sum { list-style: none; margin: 10px 0 0; padding: 0; font-size: 14px; }
+ul.sum li { padding: 3px 0 3px 18px; position: relative; }
+ul.sum li::before { content: ""; position: absolute; left: 0; top: 9px; width: 9px; height: 9px; border-radius: 50%; background: var(--c, var(--on)); }
+ul.sum b.l { color: var(--on); } ul.sum b.o { color: var(--off); } ul.sum b.u { color: var(--muted); }
+
 svg { width: 100%; height: 160px; display: block; }
 svg .grid { stroke: var(--line); stroke-width: 1; }
 svg .lbl { fill: var(--muted); font-size: 10px; }
-svg .bat { fill: none; stroke: var(--text); stroke-width: 1.6; }
+svg .bat { fill: none; stroke: var(--accent); stroke-width: 1.8; }
 svg .acoff { fill: var(--off); opacity: .18; }
 table { width: 100%; border-collapse: collapse; font-size: 14px; }
 td { padding: 6px 4px; border-top: 1px solid var(--line); vertical-align: top; }
@@ -56,6 +67,15 @@ td.t { white-space: nowrap; color: var(--muted); font-size: 13px; width: 1%; }
 td.s { white-space: nowrap; width: 1%; }
 label.chk { font-size: 13px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
 .err { color: var(--off); }
+
+@media (max-width: 600px) {
+  /* dense: the day label and totals share a row, the bar goes full width below */
+  .week { grid-template-columns: 1fr auto; grid-auto-flow: row dense; }
+  .week .bar-wrap { grid-column: 1 / -1; grid-row: auto; }
+  .week > * { min-width: 0; }
+  .wd { padding-top: 8px; } .tot { text-align: right; padding-top: 8px; white-space: normal; }
+  .tot br { display: none; } .tot .o { margin-left: 8px; }
+}
 </style>
 </head>
 <body>
@@ -76,27 +96,30 @@ label.chk { font-size: 13px; color: var(--muted); display: flex; gap: 6px; align
   </div>
 
   <section class="card">
-    <div class="row-head"><h2 style="margin:0">Таймлайн</h2>
-      <div class="tabs" id="range"><button data-h="24" class="on">Доба</button><button data-h="168">Тиждень</button><button data-h="720">Місяць</button></div>
+    <div class="row-head">
+      <h2>Графік відключень <span id="w-range" style="color:var(--muted);font-weight:400"></span></h2>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <div class="seg" id="src"><button data-s="home" class="on">Дім</button><button data-s="village">Село</button></div>
+        <div class="nav"><button id="prev" title="Попередній тиждень">◀</button><button id="next" title="Наступний тиждень">▶</button></div>
+      </div>
     </div>
-    <div class="tl-label">Село</div><div class="tl" id="tl-village"></div>
-    <div class="tl-label">Дім</div><div class="tl" id="tl-home"></div>
-    <div class="axis" id="axis"></div>
+    <div class="week" id="week"></div>
     <div class="legend">
-      <span><i style="background:var(--on)"></i>є світло</span>
-      <span><i style="background:var(--off)"></i>нема світла / нема сигналу</span>
-      <span><i style="background:var(--nolink)"></i>світло було, нема зв'язку</span>
-      <span><i style="background:var(--unk)"></i>невідомо (немає даних)</span>
+      <span><i class="light"></i>Світло було</span>
+      <span><i class="outage"></i>Світла не було</span>
+      <span id="lg-nolink"><i class="nolink"></i>Світло було, не було зв'язку</span>
+      <span><i class="unknown"></i>Немає даних</span>
     </div>
+    <ul class="sum" id="sum"></ul>
   </section>
 
   <section class="card">
-    <h2>Батарея домашнього сервера</h2>
+    <h2 style="margin-bottom:8px">Батарея домашнього сервера, доба</h2>
     <svg id="bat" viewBox="0 0 600 160" preserveAspectRatio="none"></svg>
   </section>
 
   <section class="card">
-    <div class="row-head"><h2 style="margin:0">Журнал</h2>
+    <div class="row-head"><h2>Журнал</h2>
       <label class="chk"><input type="checkbox" id="tech"> технічні події</label></div>
     <table id="events"></table>
   </section>
@@ -105,21 +128,25 @@ label.chk { font-size: 13px; color: var(--muted); display: flex; gap: 6px; align
 const TZ = "Europe/Kyiv";
 const fmtT = new Intl.DateTimeFormat("uk-UA", {timeZone: TZ, day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"});
 const fmtH = new Intl.DateTimeFormat("uk-UA", {timeZone: TZ, hour: "2-digit", minute: "2-digit"});
-const fmtD = new Intl.DateTimeFormat("uk-UA", {timeZone: TZ, day: "2-digit", month: "2-digit"});
 const t = s => s ? fmtT.format(new Date(s * 1000)) : "—";
 const $ = id => document.getElementById(id);
-let hours = 24;
+const WD = ["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ", "НД"];
+let source = "home", week = 0;
 
 function dur(sec) {
-  if (sec == null) return "";
+  if (sec == null) return "—";
   sec = Math.max(0, Math.round(sec));
   const d = Math.floor(sec / 86400), h = Math.floor(sec % 86400 / 3600), m = Math.floor(sec % 3600 / 60);
-  if (d) return `${d} д ${h} год`;
-  if (h) return `${h} год ${m} хв`;
-  return `${m} хв`;
+  const p = [];
+  if (d) p.push(`${d}д`);
+  if (h) p.push(`${h}год`);
+  if (m || !p.length) p.push(`${m}хв`);
+  return p.join(" ");
 }
+const pct = x => x == null ? "" : ` (${Math.round(x * 100)}%)`;
 function esc(s) { return String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
-async function get(url) { const r = await fetch(url); if (!r.ok) throw new Error(url + " " + r.status); return r.json(); }
+async function get(url) { const r = await fetch(url, {cache: "no-store"}); if (!r.ok) throw new Error(url + " " + r.status); return r.json(); }
+const ddmm = iso => iso.slice(8, 10) + "." + iso.slice(5, 7);
 
 const V_TEXT = {online: "Світло є", offline: "Немає сигналу — ймовірно, нема світла",
   unknown: "Невідомо (немає даних)", never: "Ще не було жодного пінгу"};
@@ -134,7 +161,7 @@ function renderStatus(s) {
   const vk = [];
   if (v.since && v.status !== "never") vk.push(`з <b>${t(v.since)}</b> (${dur(now - v.since)})`);
   if (v.last_ping) vk.push(`останній пінг: <b>${t(v.last_ping)}</b>`);
-  vk.push(`джерело: ${v.mode === "healthchecks" ? "Healthchecks" : v.mode}`);
+  vk.push(`джерело: ${v.mode === "healthchecks" ? "Healthchecks" : esc(v.mode)}`);
   if (v.obs && v.obs.ok === false) vk.push(`<span class="err">Healthchecks недоступний: ${esc(v.obs.error)}</span>`);
   const dg = v.obs && v.obs.diag;
   if (dg && dg.rssi != null) vk.push(`ESP: RSSI ${esc(dg.rssi)} dBm, прошивка ${esc(dg.fw || "?")}, перезапусків ${esc(dg.boot_count ?? "?")}`);
@@ -156,34 +183,48 @@ function renderStatus(s) {
   $("updated").textContent = "оновлено " + fmtH.format(new Date());
 }
 
-function renderTimeline(p) {
-  const span = p.to - p.from;
-  for (const src of ["village", "home"]) {
-    const el = $("tl-" + src);
-    const first = p.first && p.first[src];
-    el.classList.toggle("empty", first == null);
-    const periods = p.periods.filter(x => x.source === src || (src === "village" && x.source === "server"));
-    if (first != null && first > p.from) periods.unshift({kind: "unknown", start: p.from, end: first});
-    el.innerHTML = first == null ? "" : periods.map(x => {
-      const a = Math.max(x.start, p.from), z = Math.min(x.end ?? p.to, p.to);
-      if (z <= a) return "";
-      const title = `${t(x.start)} – ${x.end ? t(x.end) : "зараз"} (${dur((x.end ?? p.to) - x.start)})`;
-      return `<span class="${x.kind}" title="${title}" style="left:${(a - p.from) / span * 100}%;width:${Math.max(.3, (z - a) / span * 100)}%"></span>`;
+const TICKS = (() => {
+  let s = "";
+  for (let hr = 0; hr <= 24; hr += 4) s += `<i style="left:calc(${hr / 24 * 100}% - ${hr === 24 ? 2 : 0}px)"></i><em style="left:${hr / 24 * 100}%">${hr}</em>`;
+  return `<div class="ticks">${s}</div>`;
+})();
+
+function renderWeek(r) {
+  const days = r.days;
+  $("w-range").textContent = `${ddmm(days[0].date)} – ${ddmm(days[days.length - 1].date)}`;
+  $("week").innerHTML = days.map(d => {
+    const span = d.to - d.from;
+    const bar = d.segments.map(x => {
+      const title = `${fmtH.format(new Date(x.start * 1000))} – ${fmtH.format(new Date(x.end * 1000))} (${dur(x.end - x.start)})`;
+      return `<span class="${x.kind}" title="${title}" style="left:${(x.start - d.from) / span * 100}%;width:${(x.end - x.start) / span * 100}%"></span>`;
     }).join("");
+    const hasData = d.light_s + d.outage_s > 0;
+    const tot = hasData ? `<span class="l">${dur(d.light_s)}</span><br><span class="o">${d.outage_s ? "без світла " + dur(d.outage_s) : "без відключень"}</span>`
+                        : `<span style="color:var(--muted)">немає даних</span>`;
+    return `<div class="wd">${WD[d.weekday]} <small>(${ddmm(d.date)})</small></div>
+            <div class="bar-wrap"><div class="bar">${bar}</div>${TICKS}</div>
+            <div class="tot">${tot}</div>`;
+  }).join("");
+  const s = r.summary, known = s.light_s + s.outage_s;
+  const li = [];
+  if (!known) li.push(`<li style="--c:var(--unk)">За цей тиждень ще немає даних</li>`);
+  else {
+    li.push(`<li>Всього світло було: <b class="l">${dur(s.light_s)}</b>${pct(s.light_share)}</li>`);
+    li.push(`<li style="--c:var(--off)">Всього світла не було: <b class="o">${dur(s.outage_s)}</b>. Світло вимикали <b>${s.outages}</b> ${s.outages % 10 === 1 && s.outages % 100 !== 11 ? "раз" : (s.outages % 10 >= 2 && s.outages % 10 <= 4 && (s.outages % 100 < 10 || s.outages % 100 >= 20) ? "рази" : "разів")}</li>`);
+    li.push(`<li>Найдовше світло було: <b class="l">${dur(s.longest_light_s)}</b></li>`);
+    li.push(`<li style="--c:var(--off)">Найдовше світла не було: <b class="o">${dur(s.longest_outage_s)}</b></li>`);
+    li.push(`<li style="--c:var(--nolink)">У середньому світло було <b class="l">${dur(s.avg_light_per_day_s)}</b>${pct(s.light_share)} за добу, і не було <b class="o">${dur(86400 - s.avg_light_per_day_s)}</b>${pct(1 - s.light_share)}</li>`);
   }
-  const ticks = [];
-  for (let i = 0; i <= 4; i++) {
-    const ts = new Date((p.from + span * i / 4) * 1000);
-    ticks.push(`<span>${hours <= 24 ? fmtH.format(ts) : fmtD.format(ts)}</span>`);
-  }
-  $("axis").innerHTML = ticks.join("");
+  if (s.unknown_s > 60) li.push(`<li style="--c:var(--unk)">Немає даних: <b class="u">${dur(s.unknown_s)}</b> (не враховано)</li>`);
+  $("sum").innerHTML = li.join("");
+  $("next").disabled = week === 0;
+  $("lg-nolink").style.display = source === "village" ? "" : "none";
 }
 
 function renderBattery(rows, from, to) {
   const W = 600, H = 160, top = 8, bot = 18, x = ts => (ts - from) / (to - from) * W, y = v => top + (100 - v) / 100 * (H - top - bot);
   let s = "";
   for (const v of [0, 50, 100]) s += `<line class="grid" x1="0" x2="${W}" y1="${y(v)}" y2="${y(v)}"/><text class="lbl" x="2" y="${y(v) - 2}">${v}%</text>`;
-  // shade periods without AC
   let startOff = null;
   rows.forEach((r, i) => {
     if (!r.ac && startOff == null) startOff = r.ts;
@@ -193,8 +234,8 @@ function renderBattery(rows, from, to) {
     }
   });
   const pts = rows.filter(r => r.battery != null).map(r => `${x(r.ts).toFixed(1)},${y(r.battery).toFixed(1)}`);
-  if (pts.length) s += `<polyline class="bat" points="${pts.join(" ")}"/>`;
-  else s += `<text class="lbl" x="${W / 2}" y="${H / 2}" text-anchor="middle">немає даних</text>`;
+  if (pts.length > 1) s += `<polyline class="bat" points="${pts.join(" ")}"/>`;
+  else s += `<text class="lbl" x="${W / 2}" y="${H / 2}" text-anchor="middle">замало даних</text>`;
   $("bat").innerHTML = s;
 }
 
@@ -212,28 +253,32 @@ function renderEvents(list) {
     const d = e.detail || {};
     if (e.type === "power_restored" && d.precise_end === false && e.source === "village") extra += ", час появи приблизний";
     if (d.precision_s) extra += `, точність ±${dur(d.precision_s)}`;
+    if (d.drain_pct_per_h != null) extra += `, розряд у сні ${d.drain_pct_per_h}%/год`;
     if (d.battery != null) extra += `, батарея ${Math.round(d.battery)}%`;
     if (e.type === "power_lost" && d.late) extra += " (виявлено із запізненням)";
     if (e.type === "gap_unknown" && d.reason) extra += ` · ${esc(d.reason)}`;
-    return `<tr><td class="t">${t(e.ts)}</td><td class="s">${S_TEXT[e.source] || e.source}</td><td>${E_TEXT[e.type] || esc(e.type)}${extra}</td></tr>`;
+    return `<tr><td class="t">${t(e.ts)}</td><td class="s">${S_TEXT[e.source] || esc(e.source)}</td><td>${E_TEXT[e.type] || esc(e.type)}${extra}</td></tr>`;
   }).join("") || `<tr><td>Подій ще немає</td></tr>`;
 }
 
 async function refresh() {
   try {
-    const [s, p, b, e] = await Promise.all([get("api/status"), get("api/periods?hours=" + hours),
-      get("api/battery?hours=" + hours), get("api/events?limit=100&technical=" + $("tech").checked)]);
-    renderStatus(s); renderTimeline(p); renderBattery(b, p.from, p.to); renderEvents(e);
+    const now = Date.now() / 1000;
+    const [s, w, b, e] = await Promise.all([get("api/status"), get(`api/daily?source=${source}&week=${week}`),
+      get("api/battery?hours=24"), get("api/events?limit=100&technical=" + $("tech").checked)]);
+    renderStatus(s); renderWeek(w); renderBattery(b, now - 86400, now); renderEvents(e);
   } catch (err) {
     $("updated").innerHTML = `<span class="err">немає зв'язку з сервером</span>`;
   }
 }
-$("range").addEventListener("click", ev => {
+$("src").addEventListener("click", ev => {
   const btn = ev.target.closest("button"); if (!btn) return;
-  hours = +btn.dataset.h;
-  [...$("range").children].forEach(x => x.classList.toggle("on", x === btn));
+  source = btn.dataset.s;
+  [...$("src").children].forEach(x => x.classList.toggle("on", x === btn));
   refresh();
 });
+$("prev").addEventListener("click", () => { week++; refresh(); });
+$("next").addEventListener("click", () => { if (week) { week--; refresh(); } });
 $("tech").addEventListener("change", refresh);
 refresh();
 setInterval(refresh, 30000);

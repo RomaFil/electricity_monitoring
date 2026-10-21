@@ -7,12 +7,14 @@ import hmac
 import json
 import time
 from collections import defaultdict, deque
+from datetime import datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse
 
-from . import config, db, home
+from . import config, db, home, stats
 
 app = FastAPI(title="Svitlo-Local", docs_url=None, redoc_url=None)
 STATIC = Path(__file__).parent / "static"
@@ -173,6 +175,21 @@ def api_periods(hours: float = 24, c=Depends(con)):
         "home": c.execute("SELECT MIN(ts) FROM power_samples").fetchone()[0],
     }
     return {"from": since, "to": now, "periods": out, "first": first}
+
+
+@app.get("/api/daily")
+def api_daily(source: str = "home", days: int = 7, week: int = 0, c=Depends(con)):
+    """Weekly chart: one row per local day. week=0 is the last 7 days, week=1 the 7 before, ..."""
+    if source not in ("home", "village"):
+        raise HTTPException(400, "source must be home or village")
+    days = max(1, min(days, 31))
+    week = max(0, min(week, 52))
+    now = time.time()
+    p = api_periods(hours=(week + 1) * days * 24 + 24, c=c)
+    periods = [x for x in p["periods"] if x["source"] == source or (source == "village" and x["source"] == "server")]
+    today = datetime.fromtimestamp(now, ZoneInfo(config.TZ_NAME)).date()
+    return stats.daily(periods, p["first"][source], now, days, config.TZ_NAME,
+                       end_day=today - timedelta(days=week * days))
 
 
 @app.get("/api/battery")
