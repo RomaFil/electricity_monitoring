@@ -33,6 +33,7 @@ def record_server_gap(con, now):
 
 def store_pings(con, pings):
     for p in pings:
+        db.add_sample(con, p.ts, p.detail or {})
         con.execute("INSERT OR IGNORE INTO pings(source,ts,seq,detail) VALUES('village',?,?,?)",
                     (p.ts, p.seq, json.dumps({**(p.detail or {}), "uptime_s": p.uptime_s,
                                               "contiguous": p.contiguous}, ensure_ascii=False)))
@@ -69,6 +70,7 @@ class Relay:
                 if now >= self.next_diag and cursor:
                     self.next_diag = now + config.DIAG_BODY_EVERY_S
                     obs["diag"] = self.client.body(cursor)
+                    db.add_sample(self.con, st.last_ping_ts, obs["diag"])
             except Exception as exc:  # network, 4xx/5xx, bad json
                 log.warning("healthchecks poll failed: %s", exc)
                 obs = {**obs, "ok": False, "complete": False, "error": str(exc)[:200]}

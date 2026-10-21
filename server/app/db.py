@@ -39,6 +39,14 @@ CREATE TABLE IF NOT EXISTS power_samples(
     state       TEXT
 );
 
+-- village temperature / humidity / pressure from the ESP (BME280), ~every 5 minutes
+CREATE TABLE IF NOT EXISTS sensor_samples(
+    ts      REAL PRIMARY KEY,       -- ping time the reading came with
+    t       REAL,                   -- °C
+    h       REAL,                   -- %
+    p       REAL                    -- hPa
+);
+
 -- direct-mode heartbeats wait here until the poller processes them
 CREATE TABLE IF NOT EXISTS inbox(
     id      INTEGER PRIMARY KEY,
@@ -80,6 +88,19 @@ def add_event(con, e: dict) -> bool:
         (e["source"], e["type"], e["ts"], e.get("start"), e.get("end"),
          json.dumps(e.get("detail") or {}, ensure_ascii=False), e.get("ext_id"), time.time()))
     return cur.rowcount == 1
+
+
+def add_sample(con, ts, detail: dict):
+    """Store t/h/p from an ESP ping body, if it has them."""
+    def num(k):
+        try:
+            return float(detail[k]) if detail.get(k) is not None else None
+        except (TypeError, ValueError):
+            return None
+    t = num("t")
+    if ts is None or t is None:
+        return
+    con.execute("INSERT OR IGNORE INTO sensor_samples(ts,t,h,p) VALUES(?,?,?,?)", (ts, t, num("h"), num("p")))
 
 
 def row_to_event(r) -> dict:

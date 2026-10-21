@@ -6,7 +6,9 @@
 #include <ESP8266WiFi.h>
 
 #include "config.h"
+#include "display.h"
 #include "heartbeat.h"
+#include "sensors.h"
 #include "state.h"
 
 static ESP8266WebServer server(80);
@@ -89,7 +91,32 @@ static void handleStatus() {
   b += row(F("Невдач підряд / всього"), String(st.failsInRow) + " / " + st.failsTotal);
   b += row(F("Надіслано"), String(st.sentTotal));
   b += row(F("Перезапусків (boot count)"), String(st.bootCount));
-  b += row(F("Час NTP"), timeValid() ? String(F("<span class=ok>синхронізовано</span>")) : String(F("ще ні")));
+  String clock;
+  if (timeSource == TimeSource::None) clock = F("<span class=bad>невідомий</span>");
+  else {
+    time_t now = time(nullptr);
+    tm lt;
+    localtime_r(&now, &lt);
+    char buf[24];
+    strftime(buf, sizeof(buf), "%d.%m.%Y %H:%M:%S", &lt);
+    clock = String(buf) + (timeSource == TimeSource::Ntp ? F(" (NTP)") : F(" (з DS3231)"));
+  }
+  b += row(F("Час"), clock);
+  b += row(F("Годинник DS3231"), !rtcFound ? String(F("<span class=bad>не знайдено</span>"))
+                                 : rtcLostPower ? String(F("<span class=bad>знайдено, час втрачено (батарейка?)</span>"))
+                                                : String(F("<span class=ok>працює</span>")));
+  String sensor;
+  if (!env.sensor.length()) sensor = F("<span class=bad>не знайдено</span>");
+  else if (!env.ok) sensor = env.sensor + F(", <span class=bad>немає показів</span>");
+  else {
+    sensor = env.sensor + F(": ") + String(env.t, 1) + F(" °C");
+    if (!isnan(env.h)) sensor += F(", ") + String(env.h, 0) + F(" %");
+    if (!isnan(env.p)) sensor += F(", ") + String(env.p, 0) + F(" гПа");
+    if (env.sensor == "BMP280") sensor += F(" <span class=muted>(BMP280 не міряє вологість)</span>");
+  }
+  b += row(F("Датчик"), sensor);
+  b += row(F("Шина I²C"), i2cScan());
+  b += row(F("Дисплей"), esc(displayInfo));
   b += row(F("Вільна пам'ять"), String(ESP.getFreeHeap()) + F(" байт"));
   b += row(F("Прошивка"), F(FW_VERSION));
   b += F("</table></div><a class=btn href=/settings>Налаштування</a> ");

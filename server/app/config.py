@@ -16,7 +16,7 @@ HC_API_BASE = os.environ.get("HC_API_BASE", "https://healthchecks.io")
 HC_API_KEY = os.environ.get("HC_API_KEY", "")
 HC_CHECK_UUID = os.environ.get("HC_CHECK_UUID", "")
 POLL_INTERVAL_S = _f("POLL_INTERVAL_S", 60)
-DIAG_BODY_EVERY_S = _f("DIAG_BODY_EVERY_S", 600)       # how often to fetch the newest ping body for diagnostics
+DIAG_BODY_EVERY_S = _f("DIAG_BODY_EVERY_S", 300)       # newest ping body: diagnostics + temperature sample
 
 # Tokens are stored only as sha256 hex hashes
 POWER_KEY_SHA256 = os.environ.get("POWER_KEY_SHA256", "").lower()

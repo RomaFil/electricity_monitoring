@@ -16,7 +16,9 @@
 #include <time.h>
 
 #include "config.h"
+#include "display.h"
 #include "heartbeat.h"
+#include "sensors.h"
 #include "state.h"
 #include "web.h"
 
@@ -24,6 +26,8 @@ State st;
 
 static const char *HOSTNAME = "svitlo-local";
 static const char *AP_SSID = "SVITLO-LOCAL";
+// Kyiv time with summer time; the display shows local time, everything else uses UTC.
+static const char *TZ_KYIV = "EET-2EEST,M3.5.0/3,M10.5.0/4";
 static const int LED_PIN = 2;  // GPIO2, LED on the ESP-12 module, lit when LOW
 static const uint32_t AP_AFTER_MS = 60000;      // no Wi-Fi for this long -> turn the setup AP on
 static const uint32_t AP_OFF_AFTER_MS = 120000; // connected for this long and nobody on the AP -> AP off
@@ -101,7 +105,7 @@ static void apStop() {
 
 static void onConnected() {
   Serial.printf("Wi-Fi: %s, IP %s, RSSI %d\n", WiFi.SSID().c_str(), WiFi.localIP().toString().c_str(), WiFi.RSSI());
-  configTime(0, 0, "pool.ntp.org", "time.google.com");  // UTC; the server does the time zone
+  configTime(TZ_KYIV, "pool.ntp.org", "time.google.com");  // NTP also corrects the DS3231
   MDNS.end();
   MDNS.begin(HOSTNAME);
   MDNS.addService("http", "tcp", 80);
@@ -154,6 +158,10 @@ void setup() {
       delay(100);
     }
   }
+  setenv("TZ", TZ_KYIV, 1);
+  tzset();
+  sensorsBegin();  // DS3231 gives the time right away, before Wi-Fi and NTP
+  displayBegin();
   st.bootCount = bootCountIncrement();
   configLoad(st.cfg);
   Serial.printf("boot #%u, quick boots %u, networks: %s\n", st.bootCount, fast, st.cfg.hasNetworks() ? "yes" : "none");
@@ -182,6 +190,8 @@ void loop() {
   wifiLoop();
   webLoop();
   if (WiFi.status() == WL_CONNECTED) MDNS.update();
+  sensorsLoop();
+  displayLoop();
   heartbeatLoop();
   ledLoop();
 }

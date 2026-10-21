@@ -6,6 +6,7 @@
 #include <memory>
 
 #include "certs.h"
+#include "sensors.h"
 #include "state.h"
 
 // If NTP has not answered yet, certificate dates are checked against this moment
@@ -30,6 +31,19 @@ static String body() {
   b += st.failsTotal;
   b += F(",\"heap\":");
   b += ESP.getFreeHeap();
+  // Village temperature / humidity / pressure for the dashboard chart (only when the sensor works)
+  if (env.ok) {
+    b += F(",\"t\":");
+    b += String(env.t, 1);
+    if (!isnan(env.h)) {
+      b += F(",\"h\":");
+      b += String(env.h, 1);
+    }
+    if (!isnan(env.p)) {
+      b += F(",\"p\":");
+      b += String(env.p, 1);
+    }
+  }
   b += F(",\"fw\":\"" FW_VERSION "\"}");
   return b;
 }

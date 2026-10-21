@@ -57,6 +57,13 @@ ul.sum li::before { content: ""; position: absolute; left: 0; top: 9px; width: 9
 ul.sum b.l { color: var(--on); } ul.sum b.o { color: var(--off); } ul.sum b.u { color: var(--muted); }
 
 svg { width: 100%; height: 160px; display: block; }
+svg#env { height: 200px; }
+svg .temp { fill: none; stroke: #ff9f43; stroke-width: 1.8; }
+svg .hum { fill: none; stroke: var(--accent); stroke-width: 1.6; opacity: .9; }
+svg .lbl.r { text-anchor: end; }
+.now { display: flex; gap: 24px; flex-wrap: wrap; margin: 4px 0 10px; }
+.now div { font-size: 26px; font-weight: 600; }
+.now small { display: block; font-size: 12px; font-weight: 400; color: var(--muted); }
 svg .grid { stroke: var(--line); stroke-width: 1; }
 svg .lbl { fill: var(--muted); font-size: 10px; }
 svg .bat { fill: none; stroke: var(--accent); stroke-width: 1.8; }
@@ -114,6 +121,16 @@ label.chk { font-size: 13px; color: var(--muted); display: flex; gap: 6px; align
   </section>
 
   <section class="card">
+    <div class="row-head"><h2>Село: температура й вологість</h2>
+      <div class="seg" id="env-range"><button data-h="24" class="on">Доба</button><button data-h="168">Тиждень</button><button data-h="720">Місяць</button></div>
+    </div>
+    <div class="now" id="env-now"></div>
+    <svg id="env" viewBox="0 0 600 200" preserveAspectRatio="none"></svg>
+    <div class="legend"><span><i style="background:#ff9f43"></i>температура, °C (ліва шкала)</span>
+      <span><i style="background:var(--accent)"></i>вологість, % (права шкала)</span></div>
+  </section>
+
+  <section class="card">
     <h2 style="margin-bottom:8px">Батарея домашнього сервера, доба</h2>
     <svg id="bat" viewBox="0 0 600 160" preserveAspectRatio="none"></svg>
   </section>
@@ -131,7 +148,7 @@ const fmtH = new Intl.DateTimeFormat("uk-UA", {timeZone: TZ, hour: "2-digit", mi
 const t = s => s ? fmtT.format(new Date(s * 1000)) : "—";
 const $ = id => document.getElementById(id);
 const WD = ["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ", "НД"];
-let source = "home", week = 0;
+let source = "home", week = 0, envHours = 24;
 
 function dur(sec) {
   if (sec == null) return "—";
@@ -164,6 +181,7 @@ function renderStatus(s) {
   vk.push(`джерело: ${v.mode === "healthchecks" ? "Healthchecks" : esc(v.mode)}`);
   if (v.obs && v.obs.ok === false) vk.push(`<span class="err">Healthchecks недоступний: ${esc(v.obs.error)}</span>`);
   const dg = v.obs && v.obs.diag;
+  if (dg && dg.t != null) vk.push(`у селі: <b>${(+dg.t).toFixed(1)} °C</b>${dg.h != null ? `, <b>${Math.round(dg.h)} %</b>` : ""}`);
   if (dg && dg.rssi != null) vk.push(`ESP: RSSI ${esc(dg.rssi)} dBm, прошивка ${esc(dg.fw || "?")}, перезапусків ${esc(dg.boot_count ?? "?")}`);
   $("v-kv").innerHTML = vk.join("<br>");
 
@@ -239,6 +257,41 @@ function renderBattery(rows, from, to) {
   $("bat").innerHTML = s;
 }
 
+function renderEnv(r) {
+  const W = 600, H = 200, top = 10, bot = 18, rows = r.rows, from = r.from, to = r.to;
+  const L = r.last, fresh = L && (Date.now() / 1000 - L.ts) < 3600;
+  $("env-now").innerHTML = L ? `<div>${L.t.toFixed(1)} °C<small>температура${fresh ? "" : ", " + t(L.ts)}</small></div>` +
+      (L.h != null ? `<div>${Math.round(L.h)} %<small>вологість</small></div>` : "") +
+      (L.p != null ? `<div>${Math.round(L.p)}<small>тиск, гПа</small></div>` : "")
+    : `<div style="font-size:15px;color:var(--muted)">Ще немає даних з датчика</div>`;
+  const ts = rows.filter(x => x.t != null).map(x => x.t);
+  let s = "";
+  if (ts.length < 2) { $("env").innerHTML = `<text class="lbl" x="${W / 2}" y="${H / 2}" text-anchor="middle">замало даних</text>`; return; }
+  let tmin = Math.floor(Math.min(...ts) - 1), tmax = Math.ceil(Math.max(...ts) + 1);
+  const x = v => (v - from) / (to - from) * W;
+  const yT = v => top + (tmax - v) / (tmax - tmin) * (H - top - bot);
+  const yH = v => top + (100 - v) / 100 * (H - top - bot);
+  for (let i = 0; i <= 4; i++) {
+    const yy = top + i / 4 * (H - top - bot);
+    s += `<line class="grid" x1="0" x2="${W}" y1="${yy}" y2="${yy}"/>`;
+    s += `<text class="lbl" x="2" y="${yy - 2}">${(tmax - i / 4 * (tmax - tmin)).toFixed(0)}°</text>`;
+    s += `<text class="lbl r" x="${W - 2}" y="${yy - 2}">${100 - i * 25}%</text>`;
+  }
+  // a gap longer than 30 min (no light / no data) breaks the line instead of drawing a straight jump
+  const line = (key, y, cls) => {
+    let out = "", seg = [], prev = null;
+    for (const r0 of rows) {
+      if (r0[key] == null) continue;
+      if (prev != null && r0.ts - prev > 1800) { if (seg.length > 1) out += `<polyline class="${cls}" points="${seg.join(" ")}"/>`; seg = []; }
+      seg.push(`${x(r0.ts).toFixed(1)},${y(r0[key]).toFixed(1)}`); prev = r0.ts;
+    }
+    if (seg.length > 1) out += `<polyline class="${cls}" points="${seg.join(" ")}"/>`;
+    return out;
+  };
+  s += line("h", yH, "hum") + line("t", yT, "temp");
+  $("env").innerHTML = s;
+}
+
 const E_TEXT = {
   power_lost: "світло зникло", power_restored: "світло з'явилось", link_restored: "зв'язок відновився (світло було)",
   gap_unknown: "пропуск у даних", no_data: "немає даних", forced_poweroff: "вимкнення через розряд",
@@ -264,9 +317,9 @@ function renderEvents(list) {
 async function refresh() {
   try {
     const now = Date.now() / 1000;
-    const [s, w, b, e] = await Promise.all([get("api/status"), get(`api/daily?source=${source}&week=${week}`),
-      get("api/battery?hours=24"), get("api/events?limit=100&technical=" + $("tech").checked)]);
-    renderStatus(s); renderWeek(w); renderBattery(b, now - 86400, now); renderEvents(e);
+    const [s, w, b, e, env] = await Promise.all([get("api/status"), get(`api/daily?source=${source}&week=${week}`),
+      get("api/battery?hours=24"), get("api/events?limit=100&technical=" + $("tech").checked), get("api/sensors?hours=" + envHours)]);
+    renderStatus(s); renderWeek(w); renderBattery(b, now - 86400, now); renderEvents(e); renderEnv(env);
   } catch (err) {
     $("updated").innerHTML = `<span class="err">немає зв'язку з сервером</span>`;
   }
@@ -275,6 +328,12 @@ $("src").addEventListener("click", ev => {
   const btn = ev.target.closest("button"); if (!btn) return;
   source = btn.dataset.s;
   [...$("src").children].forEach(x => x.classList.toggle("on", x === btn));
+  refresh();
+});
+$("env-range").addEventListener("click", ev => {
+  const btn = ev.target.closest("button"); if (!btn) return;
+  envHours = +btn.dataset.h;
+  [...$("env-range").children].forEach(x => x.classList.toggle("on", x === btn));
   refresh();
 });
 $("prev").addEventListener("click", () => { week++; refresh(); });

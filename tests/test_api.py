@@ -59,6 +59,18 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertIn("Світло", r.text)
 
+    def test_sensor_samples(self):
+        import time
+        from app import db
+        c = db.connect()
+        db.add_sample(c, time.time() - 60, {"t": "21.5", "h": 40, "p": 1010.2, "uptime_s": 5})
+        db.add_sample(c, time.time(), {"uptime_s": 6})  # no sensor in this body -> ignored
+        c.commit()
+        c.close()
+        r = self.c.get("/api/sensors").json()
+        self.assertEqual(len(r["rows"]), 1)
+        self.assertEqual((r["last"]["t"], r["last"]["h"]), (21.5, 40))
+
     def test_heartbeat_off_in_relay_mode(self):
         self.assertEqual(self.c.post("/api/heartbeat", json={}).status_code, 404)
 
