@@ -7,6 +7,7 @@
 
 #include "config.h"
 #include "display.h"
+#include "forecast.h"
 #include "heartbeat.h"
 #include "sensors.h"
 #include "state.h"
@@ -117,6 +118,16 @@ static void handleStatus() {
   b += row(F("Датчик"), sensor);
   b += row(F("Шина I²C"), i2cScan());
   b += row(F("Дисплей"), esc(displayInfo));
+  String f;
+  if (fc.ok) {
+    f = esc(st.cfg.fcName) + F(": зараз ") + String(fc.nowT, 1) + F(" °C, завтра ") + String(fc.tmrMin, 0) + "…" +
+        String(fc.tmrMax, 0) + F(" °C");
+    if (fc.tmrRain >= 0) f += F(", опади ") + String(fc.tmrRain) + "%";
+    f += F(" (") + fmtAgo(fc.fetchedMs) + ")";
+  } else {
+    f = fc.error.length() ? String(F("<span class=bad>")) + esc(fc.error) + F("</span>") : String(F("ще не отримано"));
+  }
+  b += row(F("Прогноз"), f);
   b += row(F("Вільна пам'ять"), String(ESP.getFreeHeap()) + F(" байт"));
   b += row(F("Прошивка"), F(FW_VERSION));
   b += F("</table></div><a class=btn href=/settings>Налаштування</a> ");
@@ -178,6 +189,13 @@ static void handleSettingsGet() {
   b += F("><label>Поправка вологості, % (додатна — якщо датчик показує менше, ніж є)</label>"
          "<input type=number step=1 min=-30 max=30 name=hoff value=");
   b += String(c.humOffset, 0);
+  b += F("></div><div class=card><h2>Прогноз погоди (Open-Meteo)</h2>"
+         "<label>Назва латиницею (видно на екрані)</label><input name=fcn maxlength=9 value=\"");
+  b += esc(c.fcName);
+  b += F("\"><label>Широта</label><input type=number step=0.0001 name=fclat value=");
+  b += String(c.fcLat, 4);
+  b += F("><label>Довгота</label><input type=number step=0.0001 name=fclon value=");
+  b += String(c.fcLon, 4);
   b += F("></div><div class=card><h2>Пароль адміністратора</h2>"
          "<p class=muted>Захищає налаштування й оновлення прошивки; також пароль точки доступу SVITLO-LOCAL. Мінімум 8 символів.</p>"
          "<label>Новий пароль</label><input type=password name=admin minlength=8 placeholder=\"");
@@ -209,6 +227,12 @@ static void handleSettingsPost() {
   c.fingerprint.trim();
   String admin = server.arg("admin");
   if (server.hasArg("toff")) c.tempOffset = constrain(server.arg("toff").toFloat(), -10.0f, 10.0f);
+  if (server.hasArg("fcn")) {
+    c.fcName = server.arg("fcn");
+    c.fcName.trim();
+  }
+  if (server.hasArg("fclat")) c.fcLat = constrain(server.arg("fclat").toFloat(), -90.0f, 90.0f);
+  if (server.hasArg("fclon")) c.fcLon = constrain(server.arg("fclon").toFloat(), -180.0f, 180.0f);
   if (server.hasArg("hoff")) c.humOffset = constrain(server.arg("hoff").toFloat(), -30.0f, 30.0f);
 
   String err;

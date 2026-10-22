@@ -20,6 +20,9 @@ struct Config {
   float tempOffset = -1.4;
   // Correction added to humidity, in percentage points: this sensor showed ~10 % too little (22.10.2026).
   float humOffset = 10;
+  // Weather forecast place (Open-Meteo). Name in Latin letters: the LCD has no Cyrillic.
+  String fcName = "Babyntsi";
+  float fcLat = 50.6331, fcLon = 30.0239;  // смт Бабинці, Бучанський р-н, Київська обл.
 
   bool hasNetworks() const;
 };

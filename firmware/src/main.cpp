@@ -17,6 +17,7 @@
 
 #include "config.h"
 #include "display.h"
+#include "forecast.h"
 #include "heartbeat.h"
 #include "sensors.h"
 #include "state.h"
@@ -193,5 +194,6 @@ void loop() {
   sensorsLoop();
   displayLoop();
   heartbeatLoop();
+  forecastLoop();
   ledLoop();
 }

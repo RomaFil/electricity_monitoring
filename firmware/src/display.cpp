@@ -4,6 +4,7 @@
 #include <Wire.h>
 #include <time.h>
 
+#include "forecast.h"
 #include "sensors.h"
 #include "state.h"
 
@@ -18,6 +19,7 @@ String displayInfo = "LCD не знайдено";
 static uint8_t addr = 0;           // 0 = no LCD
 static bool busOk = true;          // false after a failed write -> look for the LCD again
 static String shown[2];            // what is on the screen now, to rewrite only changes
+static int loadedIcon[2] = {-1, -1};  // weather icons now in CGRAM slots 6 and 7
 static uint32_t lastProbeMs = 0;
 
 static void lcdBus() { Wire.begin(LCD_SDA, LCD_SCL); }
@@ -90,6 +92,7 @@ static void lcdInit() {
     for (uint8_t b : g) send(b, RS);
   command(0x80);
   shown[0] = shown[1] = "";
+  loadedIcon[0] = loadedIcon[1] = -1;  // CGRAM may be garbage after (re)init
 }
 
 static void writeLine(uint8_t row, String text) {
@@ -119,6 +122,29 @@ static const char BIG[11][2][4] = {
     {{FULL, BOTH, FULL, 0}, {BOT, BOT, FULL, 0}},     // 9
     {{BOT, BOT, BOT, 0}, {' ', ' ', ' ', 0}},         // 10: dash, time unknown
 };
+
+// Weather icons, 5x8 pixels, one per Sky value (forecast.h). Slots 6 and 7 of CGRAM hold the
+// icons for "now" and "tomorrow"; they are rewritten only when the icon changes.
+static const uint8_t ICONS[8][8] = {
+    {0x00, 0x15, 0x0E, 0x1B, 0x0E, 0x15, 0x00, 0x00},  // Clear: sun
+    {0x0C, 0x06, 0x03, 0x03, 0x03, 0x06, 0x0C, 0x00},  // ClearNight: moon
+    {0x08, 0x1C, 0x08, 0x06, 0x0F, 0x1F, 0x00, 0x00},  // Partly: small sun + cloud
+    {0x00, 0x0C, 0x1E, 0x1F, 0x1F, 0x00, 0x00, 0x00},  // Cloudy
+    {0x00, 0x1F, 0x00, 0x1F, 0x00, 0x1F, 0x00, 0x00},  // Fog
+    {0x0C, 0x1E, 0x1F, 0x00, 0x15, 0x00, 0x0A, 0x00},  // Rain
+    {0x04, 0x15, 0x0E, 0x04, 0x0E, 0x15, 0x04, 0x00},  // Snow
+    {0x0C, 0x1E, 0x1F, 0x02, 0x04, 0x0E, 0x04, 0x08},  // Storm: cloud + lightning
+};
+static const char ICON_NOW = 14, ICON_TMR = 15;
+
+static void loadIcon(int slot, Sky s) {  // call on the LCD bus
+  int i = (int)s;
+  if (loadedIcon[slot - 6] == i) return;
+  command(0x40 | (slot << 3));
+  for (uint8_t b : ICONS[i]) send(b, RS);
+  loadedIcon[slot - 6] = i;
+  shown[0] = shown[1] = "";  // cursor moved: make writeLine resend
+}
 
 static String wifiDot() { return String(WiFi.status() == WL_CONNECTED ? WIFI_DOT : ' '); }
 
@@ -171,6 +197,29 @@ static void weather(String &l1, String &l2) {
   l2 += wifiDot();
 }
 
+// Screen 3: forecast for the place from the settings (Open-Meteo).
+//   Babyntsi   ☁ 11°
+//   Zavtra ☂ 6/14° 80%
+static void forecastScreen(String &l1, String &l2) {
+  char buf[24];
+  String right = String(ICON_NOW) + ' ';
+  snprintf(buf, sizeof(buf), "%.0f", fc.nowT);
+  right += String(buf) + DEG;
+  l1 = st.cfg.fcName.substring(0, 15 - right.length());
+  while (l1.length() + right.length() < 16) l1 += ' ';
+  l1 += right;
+
+  snprintf(buf, sizeof(buf), "%.0f/%.0f", fc.tmrMin, fc.tmrMax);
+  l2 = String(F("Zavtra")) + ICON_TMR + ' ' + buf + DEG;
+  if (fc.tmrRain >= 20) {  // chance of rain/snow, only when it matters
+    snprintf(buf, sizeof(buf), "%d%%", fc.tmrRain);
+    if (l2.length() + 1 + strlen(buf) <= 16) {
+      while (l2.length() + strlen(buf) < 16) l2 += ' ';
+      l2 += buf;
+    }
+  }
+}
+
 // Small text clock + one message line: first seconds after power-on and the setup mode.
 static void startup(String &l1, String &l2, const String &msg) {
   char buf[16] = "--:--:--";
@@ -204,8 +253,11 @@ static void compose(String &l1, String &l2) {
   if (st.apActive && !st.cfg.hasNetworks()) return startup(l1, l2, F("AP SVITLO-LOCAL"));  // first setup
   String msg = bootMessage();
   if (msg.length()) return startup(l1, l2, msg);
-  // 12 s cycle: 9 s big clock, 3 s weather -> weather 5 times a minute
-  if (env.ok && millis() % 12000 >= 9000) weather(l1, l2);
+  // With a forecast: 15 s cycle = 9 s big clock, 3 s room weather, 3 s forecast (4 times a minute).
+  // Without one: 12 s cycle = 9 s clock, 3 s room weather (5 times a minute).
+  uint32_t cycle = fc.ok ? 15000 : 12000, pos = millis() % cycle;
+  if (env.ok && pos >= 9000 && pos < 12000) weather(l1, l2);
+  else if (fc.ok && pos >= 12000) forecastScreen(l1, l2);
   else bigClock(l1, l2);
 }
 
@@ -251,6 +303,10 @@ void displayLoop() {
   String l1, l2;
   compose(l1, l2);
   lcdBus();
+  if (fc.ok) {
+    loadIcon(6, fc.nowSky);
+    loadIcon(7, fc.tmrSky);
+  }
   writeLine(0, l1);
   writeLine(1, l2);
   mainBus();
