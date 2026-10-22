@@ -48,6 +48,8 @@ bool configLoad(Config &c) {
   c.adminPass = doc["admin"] | "";
   c.tempOffset = doc["toff"] | -1.4f;
   if (c.tempOffset < -10 || c.tempOffset > 10) c.tempOffset = -1.4;
+  c.humOffset = doc["hoff"] | 10.0f;
+  if (c.humOffset < -30 || c.humOffset > 30) c.humOffset = 10;
   if (c.intervalS < 30 || c.intervalS > 3600) c.intervalS = 60;
   return true;
 }
@@ -68,6 +70,7 @@ bool configSave(const Config &c) {
   doc["fp"] = c.fingerprint;
   doc["admin"] = c.adminPass;
   doc["toff"] = c.tempOffset;
+  doc["hoff"] = c.humOffset;
   // Write to a temp file first, then rename: a power cut mid-write keeps the old config.
   File f = LittleFS.open("/config.tmp", "w");
   if (!f) return false;

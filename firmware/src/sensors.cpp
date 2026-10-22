@@ -69,7 +69,7 @@ static void readSensor() {
   if (env.sensor == "BME280") {
     if (bme.takeForcedMeasurement()) {
       t = bme.readTemperature();
-      h = bme.readHumidity();
+      h = constrain(bme.readHumidity() + st.cfg.humOffset, 0.0f, 100.0f);
       p = bme.readPressure() / 100.0f;
     }
   } else if (env.sensor == "BMP280") {

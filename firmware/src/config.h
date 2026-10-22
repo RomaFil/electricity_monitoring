@@ -18,6 +18,8 @@ struct Config {
   // Correction added to the BME280 temperature. This sensor showed 1.3-1.5 °C too much (22.10.2026);
   // humidity is recomputed by the sensor library with the corrected temperature.
   float tempOffset = -1.4;
+  // Correction added to humidity, in percentage points: this sensor showed ~10 % too little (22.10.2026).
+  float humOffset = 10;
 
   bool hasNetworks() const;
 };

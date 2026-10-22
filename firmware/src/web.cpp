@@ -175,6 +175,9 @@ static void handleSettingsGet() {
          "<label>Поправка температури, °C (від’ємна — якщо датчик показує більше, ніж є)</label>"
          "<input type=number step=0.1 min=-10 max=10 name=toff value=");
   b += String(c.tempOffset, 1);
+  b += F("><label>Поправка вологості, % (додатна — якщо датчик показує менше, ніж є)</label>"
+         "<input type=number step=1 min=-30 max=30 name=hoff value=");
+  b += String(c.humOffset, 0);
   b += F("></div><div class=card><h2>Пароль адміністратора</h2>"
          "<p class=muted>Захищає налаштування й оновлення прошивки; також пароль точки доступу SVITLO-LOCAL. Мінімум 8 символів.</p>"
          "<label>Новий пароль</label><input type=password name=admin minlength=8 placeholder=\"");
@@ -206,6 +209,7 @@ static void handleSettingsPost() {
   c.fingerprint.trim();
   String admin = server.arg("admin");
   if (server.hasArg("toff")) c.tempOffset = constrain(server.arg("toff").toFloat(), -10.0f, 10.0f);
+  if (server.hasArg("hoff")) c.humOffset = constrain(server.arg("hoff").toFloat(), -30.0f, 30.0f);
 
   String err;
   if (url.length() && !url.startsWith("http://") && !url.startsWith("https://")) err = F("URL має починатися з http:// або https://");
