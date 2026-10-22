@@ -5,7 +5,7 @@
 // powered from VIN (5 V). It is kept off the sensor bus (D1/D2) because the backpack may pull the
 // lines up to 5 V, which a 3.3 V BME280 does not survive.
 // Big HH:MM over both lines; every 12 s for 3 s: temperature, humidity, pressure.
-// Dot bottom-right = Wi-Fi connected; Wi-Fi in words only for 5 s after power-on.
+// Weather screen: dot bottom-right = Wi-Fi connected. Wi-Fi in words only for 5 s after power-on.
 extern String displayInfo;  // what was found, for the status page
 void displayBegin();
 void displayLoop();

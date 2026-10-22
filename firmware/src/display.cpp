@@ -122,8 +122,8 @@ static const char BIG[11][2][4] = {
 
 static String wifiDot() { return String(WiFi.status() == WL_CONNECTED ? WIFI_DOT : ' '); }
 
-// Screen 1: big HH:MM over both lines; the colon blinks once a second; Wi-Fi dot bottom-right.
-//   cols 0-2 hour tens, 4-6 hour units, 7 colon, 8-10 minute tens, 12-14 minute units, 15 Wi-Fi dot
+// Screen 1: big HH:MM over both lines; the colon blinks once a second.
+//   cols 0-2 hour tens, 4-6 hour units, 7 colon, 8-10 minute tens, 12-14 minute units
 static void bigClock(String &l1, String &l2) {
   int d[4] = {10, 10, 10, 10};
   bool colon = true;
@@ -146,7 +146,7 @@ static void bigClock(String &l1, String &l2) {
       if (i == 1) l += colon ? (row ? COLON_DN : COLON_UP) : ' ';
       else if (i != 3) l += ' ';
     }
-    l += row ? wifiDot() : String(' ');
+    l += ' ';  // no Wi-Fi dot here: it looked odd next to the big digits (Roman, 22.10.2026)
   }
 }
 
