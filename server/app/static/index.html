@@ -237,7 +237,7 @@ function renderWeek(r) {
     const hasData = d.light_s + d.outage_s > 0;
     let tot = hasData ? `<span class="l">${dur(d.light_s)}</span><br><span class="o">${d.outage_s ? "без світла " + dur(d.outage_s) : "без відключень"}</span>`
                       : `<span style="color:var(--muted)">немає даних</span>`;
-    if (d.planned_light_s != null) tot += `<br><span class="p">мало бути ${dur(d.planned_light_s)}</span>`;
+    if (d.planned_off_s != null) tot += `<br><span class="p">${d.planned_off_s ? "за графіком без світла " + dur(d.planned_off_s) : "за графіком без відключень"}</span>`;
     return `<div class="wd">${WD[d.weekday]} <small>(${ddmm(d.date)})</small></div>
             <div class="bar-wrap"><div class="bar">${bar}</div>${plan ? `<div class="plan">${plan}</div>` : ""}${TICKS}</div>
             <div class="tot">${tot}</div>`;
@@ -254,8 +254,8 @@ function renderWeek(r) {
   }
   const sc = s.schedule;
   if (sc && known) {
-    li.push(`<li style="--c:var(--plan-on)">За графіком світло мало бути: <b style="color:var(--plan-on)">${dur(sc.light_s)}</b>` +
-      `, а не мало бути: <b>${dur(sc.off_s)}</b>${sc.days < days.length ? ` <span class="u">(графік є за ${sc.days} дн.)</span>` : ""}</li>`);
+    li.push(`<li style="--c:var(--plan-on)">За графіком світла не мало бути: <b style="color:var(--plan-on)">${dur(sc.off_s)}</b>` +
+      `, а фактично не було: <b class="o">${dur(s.outage_s)}</b>${sc.days < days.length ? ` <span class="u">(графік є за ${sc.days} дн.)</span>` : ""}</li>`);
     if (sc.match_share != null) li.push(`<li style="--c:var(--plan-on)">Збіг графіка з фактом: <b>${Math.round(sc.match_share * 100)}%</b> часу</li>`);
     if (sc.outages) {
       const p15 = Math.round(sc.on_schedule_15 / sc.outages * 100), p30 = Math.round(sc.on_schedule_30 / sc.outages * 100);
