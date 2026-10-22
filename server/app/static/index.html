@@ -37,7 +37,7 @@ h2 { font-size: 16px; margin: 0; }
 .nav button:disabled { opacity: .35; cursor: default; }
 
 /* weekly chart */
-.week { display: grid; grid-template-columns: 82px 1fr 104px; column-gap: 12px; row-gap: 4px; align-items: center; }
+.week { display: grid; grid-template-columns: 82px 1fr 140px; column-gap: 12px; row-gap: 4px; align-items: center; }
 .wd { font-weight: 600; font-size: 14px; white-space: nowrap; }
 .wd small { color: var(--muted); font-weight: 400; }
 .bar-wrap { padding: 4px 0 0; }
@@ -237,7 +237,7 @@ function renderWeek(r) {
     const hasData = d.light_s + d.outage_s > 0;
     let tot = hasData ? `<span class="l">${dur(d.light_s)}</span><br><span class="o">${d.outage_s ? "без світла " + dur(d.outage_s) : "без відключень"}</span>`
                       : `<span style="color:var(--muted)">немає даних</span>`;
-    if (d.planned_off_s != null) tot += `<br><span class="p">${d.planned_off_s ? "за графіком без світла " + dur(d.planned_off_s) : "за графіком без відключень"}</span>`;
+    if (d.planned_off_s != null) tot += `<br><span class="p">${d.planned_off_s ? "за графіком без світла<br>" + dur(d.planned_off_s) : "за графіком без відключень"}</span>`;
     return `<div class="wd">${WD[d.weekday]} <small>(${ddmm(d.date)})</small></div>
             <div class="bar-wrap"><div class="bar">${bar}</div>${plan ? `<div class="plan">${plan}</div>` : ""}${TICKS}</div>
             <div class="tot">${tot}</div>`;
