@@ -6,3 +6,4 @@ backups/
 *.log
 .pio/
 firmware/**/secrets.h
+firmware/secrets.ini

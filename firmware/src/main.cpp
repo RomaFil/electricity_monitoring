@@ -160,10 +160,10 @@ void setup() {
   }
   setenv("TZ", TZ_KYIV, 1);
   tzset();
-  sensorsBegin();  // DS3231 gives the time right away, before Wi-Fi and NTP
-  displayBegin();
   st.bootCount = bootCountIncrement();
-  configLoad(st.cfg);
+  configLoad(st.cfg);  // before the sensor: it needs the temperature correction
+  sensorsBegin();      // DS3231 gives the time right away, before Wi-Fi and NTP
+  displayBegin();
   Serial.printf("boot #%u, quick boots %u, networks: %s\n", st.bootCount, fast, st.cfg.hasNetworks() ? "yes" : "none");
 
   WiFi.persistent(false);  // our own config is the only source of truth, not the SDK flash area

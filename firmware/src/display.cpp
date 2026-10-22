@@ -75,11 +75,19 @@ static void lcdInit() {
   command(0x01);   // clear
   delay(2);
   command(0x06);   // left to right
-  // Own character in CGRAM slot 0: a small round dot (Wi-Fi indicator). Printed as code 8,
-  // which the LCD maps to slot 0 too, so the String never contains a 0 byte.
-  static const uint8_t DOT[8] = {0x00, 0x00, 0x00, 0x0E, 0x0E, 0x0E, 0x00, 0x00};
+  // Own characters in CGRAM slots 0..5. They are printed as codes 8..13 (the LCD maps 8..15 to the
+  // same slots), so a String never has to contain a 0 byte.
+  static const uint8_t GLYPHS[6][8] = {
+      {0x00, 0x00, 0x00, 0x0E, 0x0E, 0x0E, 0x00, 0x00},  // 0: Wi-Fi dot
+      {0x1F, 0x1F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},  // 1: bar at the top
+      {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1F, 0x1F},  // 2: bar at the bottom
+      {0x1F, 0x1F, 0x00, 0x00, 0x00, 0x00, 0x1F, 0x1F},  // 3: bars top and bottom
+      {0x00, 0x00, 0x00, 0x00, 0x0E, 0x0E, 0x0E, 0x00},  // 4: upper colon dot (low in the top row)
+      {0x00, 0x0E, 0x0E, 0x0E, 0x00, 0x00, 0x00, 0x00},  // 5: lower colon dot (high in the bottom row)
+  };
   command(0x40);
-  for (uint8_t b : DOT) send(b, RS);
+  for (auto &g : GLYPHS)
+    for (uint8_t b : g) send(b, RS);
   command(0x80);
   shown[0] = shown[1] = "";
 }
@@ -93,61 +101,112 @@ static void writeLine(uint8_t row, String text) {
   shown[row] = text;
 }
 
-static String line1() {
+static const char WIFI_DOT = 8, TOP = 9, BOT = 10, BOTH = 11, COLON_UP = 12, COLON_DN = 13;
+static const char FULL = (char)0xFF;  // full block, built into the LCD font
+static const char DEG = (char)0xDF;   // degree sign, built into the LCD font
+
+// Big digits: 3 columns x 2 rows each. A "middle" line is drawn as the bottom bar of the top row.
+static const char BIG[11][2][4] = {
+    {{FULL, TOP, FULL, 0}, {FULL, BOT, FULL, 0}},     // 0
+    {{TOP, FULL, ' ', 0}, {BOT, FULL, BOT, 0}},       // 1
+    {{BOTH, BOTH, FULL, 0}, {FULL, BOT, BOT, 0}},     // 2
+    {{BOTH, BOTH, FULL, 0}, {BOT, BOT, FULL, 0}},     // 3
+    {{FULL, BOT, FULL, 0}, {' ', ' ', FULL, 0}},      // 4
+    {{FULL, BOTH, BOTH, 0}, {BOT, BOT, FULL, 0}},     // 5
+    {{FULL, BOTH, BOTH, 0}, {FULL, BOT, FULL, 0}},    // 6
+    {{TOP, TOP, FULL, 0}, {' ', ' ', FULL, 0}},       // 7
+    {{FULL, BOTH, FULL, 0}, {FULL, BOT, FULL, 0}},    // 8
+    {{FULL, BOTH, FULL, 0}, {BOT, BOT, FULL, 0}},     // 9
+    {{BOT, BOT, BOT, 0}, {' ', ' ', ' ', 0}},         // 10: dash, time unknown
+};
+
+static String wifiDot() { return String(WiFi.status() == WL_CONNECTED ? WIFI_DOT : ' '); }
+
+// Screen 1: big HH:MM over both lines; the colon blinks once a second; Wi-Fi dot bottom-right.
+//   cols 0-2 hour tens, 4-6 hour units, 7 colon, 8-10 minute tens, 12-14 minute units, 15 Wi-Fi dot
+static void bigClock(String &l1, String &l2) {
+  int d[4] = {10, 10, 10, 10};
+  bool colon = true;
+  if (timeSource != TimeSource::None) {
+    time_t now = time(nullptr);
+    tm lt;
+    localtime_r(&now, &lt);
+    d[0] = lt.tm_hour / 10;
+    d[1] = lt.tm_hour % 10;
+    d[2] = lt.tm_min / 10;
+    d[3] = lt.tm_min % 10;
+    colon = lt.tm_sec % 2 == 0;
+  }
+  for (int row = 0; row < 2; row++) {
+    String &l = row ? l2 : l1;
+    l = "";
+    for (int i = 0; i < 4; i++) {
+      if (i == 0 && d[0] == 0) l += F("   ");  // " 8:05", not "08:05"
+      else l += BIG[d[i]][row];
+      if (i == 1) l += colon ? (row ? COLON_DN : COLON_UP) : ' ';
+      else if (i != 3) l += ' ';
+    }
+    l += row ? wifiDot() : String(' ');
+  }
+}
+
+// Screen 2: weather, a few seconds several times a minute.
+//   23.5°C       53%
+//   1008 hPa       •
+static void weather(String &l1, String &l2) {
   char buf[24];
-  String s;
-  if (timeSource == TimeSource::None) {
-    s = F("--:--:--");
-  } else {
+  snprintf(buf, sizeof(buf), "%.1f", env.t);
+  l1 = String(buf) + DEG + 'C';
+  if (!isnan(env.h)) {
+    snprintf(buf, sizeof(buf), "%3.0f%%", env.h);
+    while (l1.length() < 12) l1 += ' ';
+    l1 += buf;
+  }
+  l2 = "";
+  if (!isnan(env.p)) {
+    snprintf(buf, sizeof(buf), "%.0f hPa", env.p);
+    l2 = buf;
+  }
+  while (l2.length() < 15) l2 += ' ';
+  l2 += wifiDot();
+}
+
+// Small text clock + one message line: first seconds after power-on and the setup mode.
+static void startup(String &l1, String &l2, const String &msg) {
+  char buf[16] = "--:--:--";
+  if (timeSource != TimeSource::None) {
     time_t now = time(nullptr);
     tm lt;
     localtime_r(&now, &lt);
     strftime(buf, sizeof(buf), "%H:%M:%S", &lt);
-    s = buf;
   }
-  if (env.ok) {
-    snprintf(buf, sizeof(buf), " %6.1f", env.t);
-    s += buf;
-    s += (char)0xDF;  // degree sign in the LCD's built-in font
-    s += 'C';
-  }
-  return s;
+  l1 = buf;
+  l2 = msg;
 }
 
-static const char WIFI_DOT = 8;  // custom dot, see lcdInit()
-
 // Wi-Fi is reported in words only once after power-on ("WiFi OK" / "no network", 5 s);
-// after that a small dot in the bottom-right corner: lit = Wi-Fi connected, empty = not.
-static String line2() {
+// returns "" when that phase is over.
+static String bootMessage() {
   static uint32_t firstConnectMs = 0, noNetMs = 0;
+  static bool done = false;
+  if (done) return "";
   uint32_t now = millis();
-  bool wifi = WiFi.status() == WL_CONNECTED;
-  char buf[24];
-
-  if (st.apActive && !st.cfg.hasNetworks()) return F("AP SVITLO-LOCAL");  // first setup: say how to connect
-  if (wifi && !firstConnectMs) firstConnectMs = now;
+  if (WiFi.status() == WL_CONNECTED && !firstConnectMs) firstConnectMs = now;
   if (!firstConnectMs && !noNetMs && now > 30000) noNetMs = now;
   if (!firstConnectMs && !noNetMs) return F("WiFi...");
   if (firstConnectMs && now - firstConnectMs < 5000) return F("WiFi OK");
-  if (!firstConnectMs && noNetMs && now - noNetMs < 5000) return F("WiFi: no network");
+  if (!firstConnectMs && now - noNetMs < 5000) return F("WiFi: no network");
+  done = true;
+  return "";
+}
 
-  String s;
-  if (env.ok) {
-    if (!isnan(env.h)) {
-      snprintf(buf, sizeof(buf), "%3.0f%%", env.h);
-      s = buf;
-    } else {
-      s = F(" --%");
-    }
-    if (!isnan(env.p)) {
-      snprintf(buf, sizeof(buf), "  %4.0fhPa", env.p);
-      s += buf;
-    }
-  }
-  while (s.length() < 15) s += ' ';
-  s = s.substring(0, 15);
-  s += wifi ? WIFI_DOT : ' ';
-  return s;
+static void compose(String &l1, String &l2) {
+  if (st.apActive && !st.cfg.hasNetworks()) return startup(l1, l2, F("AP SVITLO-LOCAL"));  // first setup
+  String msg = bootMessage();
+  if (msg.length()) return startup(l1, l2, msg);
+  // 12 s cycle: 9 s big clock, 3 s weather -> weather 5 times a minute
+  if (env.ok && millis() % 12000 >= 9000) weather(l1, l2);
+  else bigClock(l1, l2);
 }
 
 static void describe() {
@@ -189,7 +248,8 @@ void displayLoop() {
     if (!addr) return;
   }
 
-  String l1 = line1(), l2 = line2();
+  String l1, l2;
+  compose(l1, l2);
   lcdBus();
   writeLine(0, l1);
   writeLine(1, l2);

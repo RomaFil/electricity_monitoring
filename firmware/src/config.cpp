@@ -46,6 +46,8 @@ bool configLoad(Config &c) {
   c.tlsMode = doc["tls"] | "ca";
   c.fingerprint = doc["fp"] | "";
   c.adminPass = doc["admin"] | "";
+  c.tempOffset = doc["toff"] | -1.4f;
+  if (c.tempOffset < -10 || c.tempOffset > 10) c.tempOffset = -1.4;
   if (c.intervalS < 30 || c.intervalS > 3600) c.intervalS = 60;
   return true;
 }
@@ -65,6 +67,7 @@ bool configSave(const Config &c) {
   doc["tls"] = c.tlsMode;
   doc["fp"] = c.fingerprint;
   doc["admin"] = c.adminPass;
+  doc["toff"] = c.tempOffset;
   // Write to a temp file first, then rename: a power cut mid-write keeps the old config.
   File f = LittleFS.open("/config.tmp", "w");
   if (!f) return false;

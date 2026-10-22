@@ -15,6 +15,9 @@ struct Config {
   String tlsMode = "ca";    // ca | fingerprint | insecure  (only for https:// URLs)
   String fingerprint;       // SHA-1 of the server certificate, for tlsMode=fingerprint
   String adminPass;         // protects settings and OTA; also the Wi-Fi password of the setup AP
+  // Correction added to the BME280 temperature. This sensor showed 1.3-1.5 °C too much (22.10.2026);
+  // humidity is recomputed by the sensor library with the corrected temperature.
+  float tempOffset = -1.4;
 
   bool hasNetworks() const;
 };

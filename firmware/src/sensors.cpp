@@ -49,6 +49,8 @@ static void probeSensor() {
       bme.setSampling(Adafruit_BME280::MODE_FORCED, Adafruit_BME280::SAMPLING_X1, Adafruit_BME280::SAMPLING_X1,
                       Adafruit_BME280::SAMPLING_X1, Adafruit_BME280::FILTER_OFF);
       env.sensor = "BME280";
+      // The library applies the offset inside its maths, so humidity and pressure use the corrected temperature
+      bme.setTemperatureCompensation(st.cfg.tempOffset);
     } else if (id == 0x58 && bmp.begin(a, 0x58)) {
       bmp.setSampling(Adafruit_BMP280::MODE_FORCED, Adafruit_BMP280::SAMPLING_X1, Adafruit_BMP280::SAMPLING_X1,
                       Adafruit_BMP280::FILTER_OFF);
@@ -72,7 +74,7 @@ static void readSensor() {
     }
   } else if (env.sensor == "BMP280") {
     if (bmp.takeForcedMeasurement()) {
-      t = bmp.readTemperature();
+      t = bmp.readTemperature() + st.cfg.tempOffset;
       p = bmp.readPressure() / 100.0f;
     }
   }
