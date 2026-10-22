@@ -47,6 +47,17 @@ CREATE TABLE IF NOT EXISTS sensor_samples(
     p       REAL                    -- hPa
 );
 
+-- official schedule per source and local day: 24 hour values ("yes", "no", "first", ...), latest version
+CREATE TABLE IF NOT EXISTS schedule_days(
+    source  TEXT NOT NULL,
+    date    TEXT NOT NULL,          -- YYYY-MM-DD, Europe/Kyiv
+    hours   TEXT NOT NULL,          -- json list of 24 values
+    grp     TEXT,                   -- e.g. GPV4.2
+    updated TEXT,                   -- "update" string from the source (dd.MM.yyyy HH:mm)
+    fetched REAL,
+    PRIMARY KEY(source, date)
+);
+
 -- direct-mode heartbeats wait here until the poller processes them
 CREATE TABLE IF NOT EXISTS inbox(
     id      INTEGER PRIMARY KEY,

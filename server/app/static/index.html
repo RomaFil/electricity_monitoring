@@ -10,6 +10,7 @@
   --bg: #111113; --card: #1b1b1f; --card2: #232328; --text: #ececf0; --muted: #9a9aa3; --line: #2e2e35;
   --on: #4ed164; --off: #ff6150; --unk: #55555d; --nolink: #f4c430; --sleep: #7c93ff; --accent: #38b6ff;
   --banner: #2a2113; --banner-line: #f59f00;
+  --plan-on: #d8b54a; --plan-off: #4a4a52;
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text);
@@ -43,6 +44,14 @@ h2 { font-size: 16px; margin: 0; }
 .bar { position: relative; height: 18px; border-radius: 3px; overflow: hidden; background: var(--card2); }
 .bar span { position: absolute; top: 0; bottom: 0; }
 .light { background: var(--on); } .outage { background: var(--off); } .unknown { background: var(--unk); } .nolink { background: var(--nolink); }
+/* official schedule: a thin bar under the real one */
+.plan { position: relative; height: 8px; border-radius: 2px; overflow: hidden; background: transparent; margin-top: 3px; }
+.plan span { position: absolute; top: 0; bottom: 0; }
+.plan .light { background: var(--plan-on); } .plan .off { background: var(--plan-off); }
+.plan .maybe { background: repeating-linear-gradient(45deg, var(--plan-on) 0 3px, var(--plan-off) 3px 6px); }
+i.plan-on { background: var(--plan-on); } i.plan-off { background: var(--plan-off); }
+i.plan-maybe { background: repeating-linear-gradient(45deg, var(--plan-on) 0 3px, var(--plan-off) 3px 6px); }
+.tot .p { color: var(--plan-on); font-size: 12px; }
 .ticks { position: relative; height: 16px; border-top: 2px solid #3a3a42; margin-top: 3px; }
 .ticks i { position: absolute; top: -2px; width: 2px; height: 6px; background: #3a3a42; }
 .ticks em { position: absolute; top: 4px; transform: translateX(-50%); font-style: normal; font-size: 10px; color: var(--muted); }
@@ -116,7 +125,11 @@ label.chk { font-size: 13px; color: var(--muted); display: flex; gap: 6px; align
       <span><i class="outage"></i>Світла не було</span>
       <span id="lg-nolink"><i class="nolink"></i>Світло було, не було зв'язку</span>
       <span><i class="unknown"></i>Немає даних</span>
+      <span class="lg-plan"><i class="plan-on"></i>Світло мало бути (за графіком)</span>
+      <span class="lg-plan"><i class="plan-off"></i>Світла не мало бути</span>
+      <span class="lg-plan"><i class="plan-maybe"></i>Можливе відключення</span>
     </div>
+    <div id="sched-info" class="kv" style="margin-bottom:4px"></div>
     <ul class="sum" id="sum"></ul>
   </section>
 
@@ -216,11 +229,17 @@ function renderWeek(r) {
       const title = `${fmtH.format(new Date(x.start * 1000))} – ${fmtH.format(new Date(x.end * 1000))} (${dur(x.end - x.start)})`;
       return `<span class="${x.kind}" title="${title}" style="left:${(x.start - d.from) / span * 100}%;width:${(x.end - x.start) / span * 100}%"></span>`;
     }).join("");
+    const plan = d.planned.map(x => {
+      const title = `за графіком: ${{light: "світло є", off: "світла немає", maybe: "можливе відключення"}[x.kind]}, ` +
+        `${fmtH.format(new Date(x.start * 1000))} – ${fmtH.format(new Date(x.end * 1000))}`;
+      return `<span class="${x.kind}" title="${title}" style="left:${(x.start - d.from) / span * 100}%;width:${(x.end - x.start) / span * 100}%"></span>`;
+    }).join("");
     const hasData = d.light_s + d.outage_s > 0;
-    const tot = hasData ? `<span class="l">${dur(d.light_s)}</span><br><span class="o">${d.outage_s ? "без світла " + dur(d.outage_s) : "без відключень"}</span>`
-                        : `<span style="color:var(--muted)">немає даних</span>`;
+    let tot = hasData ? `<span class="l">${dur(d.light_s)}</span><br><span class="o">${d.outage_s ? "без світла " + dur(d.outage_s) : "без відключень"}</span>`
+                      : `<span style="color:var(--muted)">немає даних</span>`;
+    if (d.planned_light_s != null) tot += `<br><span class="p">мало бути ${dur(d.planned_light_s)}</span>`;
     return `<div class="wd">${WD[d.weekday]} <small>(${ddmm(d.date)})</small></div>
-            <div class="bar-wrap"><div class="bar">${bar}</div>${TICKS}</div>
+            <div class="bar-wrap"><div class="bar">${bar}</div>${plan ? `<div class="plan">${plan}</div>` : ""}${TICKS}</div>
             <div class="tot">${tot}</div>`;
   }).join("");
   const s = r.summary, known = s.light_s + s.outage_s;
@@ -233,10 +252,31 @@ function renderWeek(r) {
     li.push(`<li style="--c:var(--off)">Найдовше світла не було: <b class="o">${dur(s.longest_outage_s)}</b></li>`);
     li.push(`<li style="--c:var(--nolink)">У середньому світло було <b class="l">${dur(s.avg_light_per_day_s)}</b>${pct(s.light_share)} за добу, і не було <b class="o">${dur(86400 - s.avg_light_per_day_s)}</b>${pct(1 - s.light_share)}</li>`);
   }
+  const sc = s.schedule;
+  if (sc && known) {
+    li.push(`<li style="--c:var(--plan-on)">За графіком світло мало бути: <b style="color:var(--plan-on)">${dur(sc.light_s)}</b>` +
+      `, а не мало бути: <b>${dur(sc.off_s)}</b>${sc.days < days.length ? ` <span class="u">(графік є за ${sc.days} дн.)</span>` : ""}</li>`);
+    if (sc.match_share != null) li.push(`<li style="--c:var(--plan-on)">Збіг графіка з фактом: <b>${Math.round(sc.match_share * 100)}%</b> часу</li>`);
+    if (sc.outages) {
+      const p15 = Math.round(sc.on_schedule_15 / sc.outages * 100), p30 = Math.round(sc.on_schedule_30 / sc.outages * 100);
+      li.push(`<li style="--c:var(--plan-on)">Відключення почалось за графіком (±15 хв): <b>${sc.on_schedule_15}</b> з ${sc.outages}, це ${p15}%</li>`);
+      li.push(`<li style="--c:var(--plan-on)">Відключення почалось за графіком (±30 хв): <b>${sc.on_schedule_30}</b> з ${sc.outages}, це ${p30}%</li>`);
+    }
+  }
   if (s.unknown_s > 60) li.push(`<li style="--c:var(--unk)">Немає даних: <b class="u">${dur(s.unknown_s)}</b> (не враховано)</li>`);
   $("sum").innerHTML = li.join("");
   $("next").disabled = week === 0;
   $("lg-nolink").style.display = source === "village" ? "" : "none";
+  const si = r.schedule_info || {};
+  document.querySelectorAll(".lg-plan").forEach(e => e.style.display = si.group ? "" : "none");
+  let info = "";
+  if (si.group) {
+    info = `Офіційний графік ДТЕК: ${si.region === "kyiv" ? "м. Київ" : "Київська обл."}, черга <b>${esc(si.group)}</b>`;
+    const st = si.status || {};
+    if (st.update) info += `, оновлено ${esc(st.update)}`;
+    if (st.ok === false) info += ` · <span class="err">не вдалося завантажити: ${esc(st.error || "")}</span>`;
+  }
+  $("sched-info").innerHTML = info;
 }
 
 function renderBattery(rows, from, to) {

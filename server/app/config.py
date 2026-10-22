@@ -26,6 +26,24 @@ HEARTBEAT_KEY_SHA256 = os.environ.get("HEARTBEAT_KEY_SHA256", "").lower()
 HOME_STALE_S = _f("HOME_STALE_S", 120)
 HOME_WAKE_INTERVAL_S = _f("HOME_WAKE_INTERVAL_S", 300)
 
+# Official DTEK schedules (via github.com/Baskerville42/outage-data-ua) for the comparison on the dashboard.
+# source -> "<region file>:<group>"; empty = no comparison for that source.
+SCHEDULE_BASE_URL = os.environ.get("SCHEDULE_BASE_URL",
+                                   "https://raw.githubusercontent.com/Baskerville42/outage-data-ua/main/data")
+SCHEDULE_HOME = os.environ.get("SCHEDULE_HOME", "kyiv:GPV1.1")            # просп. Червоної Калини 54/9
+SCHEDULE_VILLAGE = os.environ.get("SCHEDULE_VILLAGE", "kyiv-region:GPV4.2")  # село, черга 4.2
+SCHEDULE_EVERY_S = _f("SCHEDULE_EVERY_S", 900)
+
+
+def schedule_targets():
+    out = {}
+    for source, spec in (("home", SCHEDULE_HOME), ("village", SCHEDULE_VILLAGE)):
+        if spec and ":" in spec:
+            region, group = spec.split(":", 1)
+            out[source] = (region.strip(), group.strip())
+    return out
+
+
 RATE_LIMIT_PER_MIN = int(os.environ.get("RATE_LIMIT_PER_MIN", 30))
 
 

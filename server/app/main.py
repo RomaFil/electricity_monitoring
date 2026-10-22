@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse
 
-from . import config, db, home, stats
+from . import config, db, home, schedule, stats
 
 app = FastAPI(title="Svitlo-Local", docs_url=None, redoc_url=None)
 STATIC = Path(__file__).parent / "static"
@@ -188,8 +188,15 @@ def api_daily(source: str = "home", days: int = 7, week: int = 0, c=Depends(con)
     p = api_periods(hours=(week + 1) * days * 24 + 24, c=c)
     periods = [x for x in p["periods"] if x["source"] == source or (source == "village" and x["source"] == "server")]
     today = datetime.fromtimestamp(now, ZoneInfo(config.TZ_NAME)).date()
-    return stats.daily(periods, p["first"][source], now, days, config.TZ_NAME,
-                       end_day=today - timedelta(days=week * days))
+    planned = {r["date"]: schedule.intervals(r["date"], json.loads(r["hours"]), config.TZ_NAME)
+               for r in c.execute("SELECT date, hours FROM schedule_days WHERE source=?", (source,))}
+    out = stats.daily(periods, p["first"][source], now, days, config.TZ_NAME,
+                      end_day=today - timedelta(days=week * days), planned=planned)
+    target = config.schedule_targets().get(source)
+    st = (db.get_meta(c, "schedule_status", {}) or {}).get(target[0]) if target else None
+    out["schedule_info"] = {"group": target[1].replace("GPV", "") if target else None,
+                            "region": target[0] if target else None, "status": st}
+    return out
 
 
 @app.get("/api/sensors")

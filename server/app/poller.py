@@ -8,7 +8,7 @@ import time
 
 import httpx
 
-from . import config, db
+from . import config, db, schedule
 from .healthchecks import HealthchecksRelay
 from .village import Ping, State, on_ping, on_tick
 
@@ -106,6 +106,50 @@ class Direct:
         return st, complete
 
 
+class Schedules:
+    """Downloads the official schedules (one JSON per region) and stores the days of our groups."""
+
+    def __init__(self, con):
+        self.con = con
+        self.http = httpx.Client(timeout=30, follow_redirects=True)
+        self.etags = {}
+        self.next = 0.0
+
+    def step(self, now):
+        if now < self.next:
+            return
+        self.next = now + config.SCHEDULE_EVERY_S
+        status = db.get_meta(self.con, "schedule_status", {}) or {}
+        targets = config.schedule_targets()
+        for region in sorted({r for r, _ in targets.values()}):
+            url = f"{config.SCHEDULE_BASE_URL}/{region}.json"
+            try:
+                headers = {"If-None-Match": self.etags[region]} if region in self.etags else {}
+                r = self.http.get(url, headers=headers)
+                if r.status_code == 304:  # unchanged since the last download
+                    status[region] = {**status.get(region, {}), "ok": True, "checked": now}
+                    continue
+                r.raise_for_status()
+                data = r.json()
+                if r.headers.get("etag"):
+                    self.etags[region] = r.headers["etag"]
+                for source, (reg, group) in targets.items():
+                    if reg != region:
+                        continue
+                    for date, hours in schedule.group_days(data, group, config.TZ_NAME).items():
+                        self.con.execute(
+                            "INSERT INTO schedule_days(source,date,hours,grp,updated,fetched) VALUES(?,?,?,?,?,?) "
+                            "ON CONFLICT(source,date) DO UPDATE SET hours=excluded.hours, grp=excluded.grp, "
+                            "updated=excluded.updated, fetched=excluded.fetched",
+                            (source, date, json.dumps(hours), group, (data.get("fact") or {}).get("update"), now))
+                status[region] = {"ok": True, "checked": now, "update": (data.get("fact") or {}).get("update"),
+                                  "source_ok": (data.get("lastUpdateStatus") or {}).get("ok")}
+            except Exception as exc:
+                log.warning("schedule %s failed: %s", region, exc)
+                status[region] = {**status.get(region, {}), "ok": False, "checked": now, "error": str(exc)[:200]}
+        db.set_meta(self.con, "schedule_status", status)
+
+
 def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     # httpx logs every request URL, and the URL contains the secret check UUID
@@ -122,6 +166,7 @@ def main():
     db.set_meta(con, "village_mode", mode)
     source = Relay(con) if mode == "healthchecks" else Direct(con, now) if mode == "direct" else None
     log.info("poller started, village source: %s", mode)
+    schedules = Schedules(con) if config.schedule_targets() else None
 
     while True:
         now = time.time()
@@ -131,6 +176,8 @@ def main():
             st, ev = on_tick(st, now, complete, config.VILLAGE_THRESHOLD_S)
             save_events(con, ev)
             db.set_meta(con, "village_state", st.to_dict())
+        if schedules:
+            schedules.step(now)
         db.set_meta(con, "poller_tick", now)
         time.sleep(TICK_S)
 
