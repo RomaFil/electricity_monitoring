@@ -127,7 +127,7 @@ label.chk { font-size: 13px; color: var(--muted); display: flex; gap: 6px; align
       <span><i class="unknown"></i>Немає даних</span>
       <span class="lg-plan"><i class="plan-on"></i>Світло мало бути (за графіком)</span>
       <span class="lg-plan"><i class="plan-off"></i>Світла не мало бути</span>
-      <span class="lg-plan"><i class="plan-maybe"></i>Можливе відключення</span>
+      <span class="lg-plan" id="lg-maybe"><i class="plan-maybe"></i>Можливе відключення</span>
     </div>
     <div id="sched-info" class="kv" style="margin-bottom:4px"></div>
     <ul class="sum" id="sum"></ul>
@@ -269,6 +269,8 @@ function renderWeek(r) {
   $("lg-nolink").style.display = source === "village" ? "" : "none";
   const si = r.schedule_info || {};
   document.querySelectorAll(".lg-plan").forEach(e => e.style.display = si.group ? "" : "none");
+  // "possible outage" appears in DTEK data only sometimes; show its legend only when this week has it
+  if (!days.some(d => d.planned.some(x => x.kind === "maybe"))) $("lg-maybe").style.display = "none";
   let info = "";
   if (si.group) {
     info = `Офіційний графік ДТЕК: ${si.region === "kyiv" ? "м. Київ" : "Київська обл."}, черга <b>${esc(si.group)}</b>`;
