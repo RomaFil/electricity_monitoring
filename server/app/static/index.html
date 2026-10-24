@@ -65,8 +65,29 @@ ul.sum li { padding: 3px 0 3px 18px; position: relative; }
 ul.sum li::before { content: ""; position: absolute; left: 0; top: 9px; width: 9px; height: 9px; border-radius: 50%; background: var(--c, var(--on)); }
 ul.sum b.l { color: var(--on); } ul.sum b.o { color: var(--off); } ul.sum b.u { color: var(--muted); }
 
+/* outage table */
+.tbl-wrap { overflow-x: auto; }
+table.out { width: 100%; border-collapse: collapse; font-size: 15px; font-variant-numeric: tabular-nums; }
+table.out th { text-align: center; font-size: 13px; color: var(--muted); font-weight: 500; padding: 4px 6px; }
+table.out th.place { color: var(--text); font-size: 14px; font-weight: 600; border-bottom: 1px solid var(--line); }
+table.out td { padding: 7px 6px; border-top: 1px solid var(--line); text-align: center; white-space: nowrap; }
+table.out td.day { text-align: left; }
+table.out td.day small { color: var(--muted); }
+table.out td.f { color: var(--off); font-weight: 600; }
+table.out td.f.zero { color: var(--on); }
+table.out td.g { color: var(--plan-on); }
+table.out td.na { color: var(--muted); }
+table.out td.sep, table.out th.sep { border-left: 1px solid var(--line); }
+table.out tr.today td { background: rgba(56, 182, 255, .07); }
+table.out tr.total td { font-weight: 700; border-top: 2px solid var(--line); }
+/* charts */
+.chart { position: relative; }
+.chart svg { width: 100%; height: 260px; display: block; }
+.chart .tip { position: absolute; pointer-events: none; background: #26262c; border: 1px solid var(--line); border-radius: 8px;
+  padding: 6px 9px; font-size: 13px; white-space: nowrap; display: none; z-index: 2; box-shadow: 0 4px 14px rgba(0,0,0,.4); }
+.chart .tip b { font-weight: 600; }
+svg .cursor { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; }
 svg { width: 100%; height: 160px; display: block; }
-svg#env { height: 200px; }
 svg .temp { fill: none; stroke: #ff9f43; stroke-width: 1.8; }
 svg .hum { fill: none; stroke: var(--accent); stroke-width: 1.6; opacity: .9; }
 svg .lbl.r { text-anchor: end; }
@@ -113,24 +134,11 @@ label.chk { font-size: 13px; color: var(--muted); display: flex; gap: 6px; align
 
   <section class="card">
     <div class="row-head">
-      <h2>Графік відключень <span id="w-range" style="color:var(--muted);font-weight:400"></span></h2>
-      <div style="display:flex;gap:10px;flex-wrap:wrap">
-        <div class="seg" id="src"><button data-s="home" class="on">Дім</button><button data-s="village">Село</button></div>
-        <div class="nav"><button id="prev" title="Попередній тиждень">◀</button><button id="next" title="Наступний тиждень">▶</button></div>
-      </div>
+      <h2>Без світла: факт і графік ДТЕК <span id="w-range" style="color:var(--muted);font-weight:400"></span></h2>
+      <div class="nav"><button id="prev" title="Попередній тиждень">◀</button><button id="next" title="Наступний тиждень">▶</button></div>
     </div>
-    <div class="week" id="week"></div>
-    <div class="legend">
-      <span><i class="light"></i>Світло було</span>
-      <span><i class="outage"></i>Світла не було</span>
-      <span id="lg-nolink"><i class="nolink"></i>Світло було, не було зв'язку</span>
-      <span><i class="unknown"></i>Немає даних</span>
-      <span class="lg-plan"><i class="plan-on"></i>Світло мало бути (за графіком)</span>
-      <span class="lg-plan"><i class="plan-off"></i>Світла не мало бути</span>
-      <span class="lg-plan" id="lg-maybe"><i class="plan-maybe"></i>Можливе відключення</span>
-    </div>
-    <div id="sched-info" class="kv" style="margin-bottom:4px"></div>
-    <ul class="sum" id="sum"></ul>
+    <div class="tbl-wrap"><table class="out" id="out"></table></div>
+    <p class="kv" id="out-note"></p>
   </section>
 
   <section class="card">
@@ -138,14 +146,14 @@ label.chk { font-size: 13px; color: var(--muted); display: flex; gap: 6px; align
       <div class="seg" id="env-range"><button data-h="24" class="on">Доба</button><button data-h="168">Тиждень</button><button data-h="720">Місяць</button></div>
     </div>
     <div class="now" id="env-now"></div>
-    <svg id="env" viewBox="0 0 600 200" preserveAspectRatio="none"></svg>
+    <div class="chart" id="env-box"><svg id="env"></svg><div class="tip"></div></div>
     <div class="legend"><span><i style="background:#ff9f43"></i>температура, °C (ліва шкала)</span>
       <span><i style="background:var(--accent)"></i>вологість, % (права шкала)</span></div>
   </section>
 
   <section class="card">
     <h2 style="margin-bottom:8px">Батарея домашнього сервера, доба</h2>
-    <svg id="bat" viewBox="0 0 600 160" preserveAspectRatio="none"></svg>
+    <div class="chart" id="bat-box"><svg id="bat"></svg><div class="tip"></div></div>
   </section>
 
   <section class="card">
@@ -161,7 +169,7 @@ const fmtH = new Intl.DateTimeFormat("uk-UA", {timeZone: TZ, hour: "2-digit", mi
 const t = s => s ? fmtT.format(new Date(s * 1000)) : "—";
 const $ = id => document.getElementById(id);
 const WD = ["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ", "НД"];
-let source = "home", week = 0, envHours = 24;
+let week = 0, envHours = 24;
 
 function dur(sec) {
   if (sec == null) return "—";
@@ -220,119 +228,176 @@ const TICKS = (() => {
   return `<div class="ticks">${s}</div>`;
 })();
 
-function renderWeek(r) {
-  const days = r.days;
+const hm = sec => {  // 5700 -> "1:35"
+  if (sec == null) return "—";
+  const m = Math.round(sec / 60);
+  return `${Math.floor(m / 60)}:${String(m % 60).padStart(2, "0")}`;
+};
+
+// One row per day, for both places: hours without light in fact and by the DTEK schedule.
+function renderTable(home, village) {
+  const days = home.days, todayIso = new Date().toLocaleDateString("sv-SE", {timeZone: TZ});
   $("w-range").textContent = `${ddmm(days[0].date)} – ${ddmm(days[days.length - 1].date)}`;
-  $("week").innerHTML = days.map(d => {
-    const span = d.to - d.from;
-    const bar = d.segments.map(x => {
-      const title = `${fmtH.format(new Date(x.start * 1000))} – ${fmtH.format(new Date(x.end * 1000))} (${dur(x.end - x.start)})`;
-      return `<span class="${x.kind}" title="${title}" style="left:${(x.start - d.from) / span * 100}%;width:${(x.end - x.start) / span * 100}%"></span>`;
-    }).join("");
-    const plan = d.planned.map(x => {
-      const title = `за графіком: ${{light: "світло є", off: "світла немає", maybe: "можливе відключення"}[x.kind]}, ` +
-        `${fmtH.format(new Date(x.start * 1000))} – ${fmtH.format(new Date(x.end * 1000))}`;
-      return `<span class="${x.kind}" title="${title}" style="left:${(x.start - d.from) / span * 100}%;width:${(x.end - x.start) / span * 100}%"></span>`;
-    }).join("");
-    const hasData = d.light_s + d.outage_s > 0;
-    let tot = hasData ? `<span class="l">${dur(d.light_s)}</span><br><span class="o">${d.outage_s ? "без світла " + dur(d.outage_s) : "без відключень"}</span>`
-                      : `<span style="color:var(--muted)">немає даних</span>`;
-    if (d.planned_off_s != null) tot += `<br><span class="p">${d.planned_off_s ? "за графіком без світла<br>" + dur(d.planned_off_s) : "за графіком без відключень"}</span>`;
-    return `<div class="wd">${WD[d.weekday]} <small>(${ddmm(d.date)})</small></div>
-            <div class="bar-wrap"><div class="bar">${bar}</div>${plan ? `<div class="plan">${plan}</div>` : ""}${TICKS}</div>
-            <div class="tot">${tot}</div>`;
-  }).join("");
-  const s = r.summary, known = s.light_s + s.outage_s;
-  const li = [];
-  if (!known) li.push(`<li style="--c:var(--unk)">За цей тиждень ще немає даних</li>`);
-  else {
-    li.push(`<li>Всього світло було: <b class="l">${dur(s.light_s)}</b>${pct(s.light_share)}</li>`);
-    li.push(`<li style="--c:var(--off)">Всього світла не було: <b class="o">${dur(s.outage_s)}</b>. Світло вимикали <b>${s.outages}</b> ${s.outages % 10 === 1 && s.outages % 100 !== 11 ? "раз" : (s.outages % 10 >= 2 && s.outages % 10 <= 4 && (s.outages % 100 < 10 || s.outages % 100 >= 20) ? "рази" : "разів")}</li>`);
-    li.push(`<li>Найдовше світло було: <b class="l">${dur(s.longest_light_s)}</b></li>`);
-    li.push(`<li style="--c:var(--off)">Найдовше світла не було: <b class="o">${dur(s.longest_outage_s)}</b></li>`);
-    li.push(`<li style="--c:var(--nolink)">У середньому світло було <b class="l">${dur(s.avg_light_per_day_s)}</b>${pct(s.light_share)} за добу, і не було <b class="o">${dur(86400 - s.avg_light_per_day_s)}</b>${pct(1 - s.light_share)}</li>`);
-  }
-  const sc = s.schedule;
-  if (sc && known) {
-    li.push(`<li style="--c:var(--plan-on)">За графіком світла не мало бути: <b style="color:var(--plan-on)">${dur(sc.off_s)}</b>` +
-      `, а фактично не було: <b class="o">${dur(s.outage_s)}</b>${sc.days < days.length ? ` <span class="u">(графік є за ${sc.days} дн.)</span>` : ""}</li>`);
-    if (sc.match_share != null) li.push(`<li style="--c:var(--plan-on)">Збіг графіка з фактом: <b>${Math.round(sc.match_share * 100)}%</b> часу</li>`);
-    if (sc.outages) {
-      const p15 = Math.round(sc.on_schedule_15 / sc.outages * 100), p30 = Math.round(sc.on_schedule_30 / sc.outages * 100);
-      li.push(`<li style="--c:var(--plan-on)">Відключення почалось за графіком (±15 хв): <b>${sc.on_schedule_15}</b> з ${sc.outages}, це ${p15}%</li>`);
-      li.push(`<li style="--c:var(--plan-on)">Відключення почалось за графіком (±30 хв): <b>${sc.on_schedule_30}</b> з ${sc.outages}, це ${p30}%</li>`);
+  const gh = (home.schedule_info || {}).group, gv = (village.schedule_info || {}).group;
+  let html = `<tr><th></th><th class="place sep" colspan="2">🏠 Дім${gh ? ` · черга ${esc(gh)}` : ""}</th>` +
+             `<th class="place sep" colspan="2">🏡 Село${gv ? ` · черга ${esc(gv)}` : ""}</th></tr>` +
+             `<tr><th></th><th class="sep">факт</th><th>графік</th><th class="sep">факт</th><th>графік</th></tr>`;
+  const cell = (d, kind) => {
+    if (kind === "f") {
+      if (!(d.light_s + d.outage_s > 0)) return `<td class="na sep">—</td>`;
+      return `<td class="f sep${d.outage_s ? "" : " zero"}">${hm(d.outage_s)}</td>`;
     }
+    return d.planned_off_s == null ? `<td class="na">—</td>` : `<td class="g">${hm(d.planned_off_s)}</td>`;
+  };
+  const tot = {hf: 0, hg: 0, vf: 0, vg: 0, hgn: 0, vgn: 0, hfn: 0, vfn: 0};
+  for (let i = days.length - 1; i >= 0; i--) {  // newest first
+    const h = home.days[i], v = village.days[i];
+    if (h.light_s + h.outage_s > 0) { tot.hf += h.outage_s; tot.hfn++; }
+    if (v.light_s + v.outage_s > 0) { tot.vf += v.outage_s; tot.vfn++; }
+    if (h.planned_off_s != null) { tot.hg += h.planned_off_s; tot.hgn++; }
+    if (v.planned_off_s != null) { tot.vg += v.planned_off_s; tot.vgn++; }
+    const today = h.date === todayIso;
+    html += `<tr class="${today ? "today" : ""}"><td class="day">${WD[h.weekday]} ${ddmm(h.date)}${today ? " <small>сьогодні</small>" : ""}</td>` +
+            cell(h, "f") + cell(h, "g") + cell(v, "f") + cell(v, "g") + `</tr>`;
   }
-  if (s.unknown_s > 60) li.push(`<li style="--c:var(--unk)">Немає даних: <b class="u">${dur(s.unknown_s)}</b> (не враховано)</li>`);
-  $("sum").innerHTML = li.join("");
+  const t2 = (sum, n) => n ? hm(sum) : "—";
+  html += `<tr class="total"><td class="day">Разом</td><td class="f sep${tot.hf ? "" : " zero"}">${t2(tot.hf, tot.hfn)}</td>` +
+          `<td class="g">${t2(tot.hg, tot.hgn)}</td><td class="f sep${tot.vf ? "" : " zero"}">${t2(tot.vf, tot.vfn)}</td>` +
+          `<td class="g">${t2(tot.vg, tot.vgn)}</td></tr>`;
+  $("out").innerHTML = html;
+  const upd = [["дім", home], ["село", village]].map(([n, r]) => {
+    const st = (r.schedule_info || {}).status || {};
+    return st.update ? `${n} — ${esc(st.update)}` : null;
+  }).filter(Boolean).join(", ");
+  $("out-note").innerHTML = `Години:хвилини без світла за добу. <b style="color:var(--off)">Факт</b> — скільки світла справді не було, ` +
+    `<b style="color:var(--plan-on)">графік</b> — скільки його не мало бути за ДТЕК. «—» — немає даних. ` +
+    `Сьогодні факт рахується до поточного моменту.${upd ? ` Графік ДТЕК оновлено: ${upd}.` : ""}`;
   $("next").disabled = week === 0;
-  $("lg-nolink").style.display = source === "village" ? "" : "none";
-  const si = r.schedule_info || {};
-  document.querySelectorAll(".lg-plan").forEach(e => e.style.display = si.group ? "" : "none");
-  // "possible outage" appears in DTEK data only sometimes; show its legend only when this week has it
-  if (!days.some(d => d.planned.some(x => x.kind === "maybe"))) $("lg-maybe").style.display = "none";
-  let info = "";
-  if (si.group) {
-    info = `Офіційний графік ДТЕК: ${si.region === "kyiv" ? "м. Київ" : "Київська обл."}, черга <b>${esc(si.group)}</b>`;
-    const st = si.status || {};
-    if (st.update) info += `, оновлено ${esc(st.update)}`;
-    if (st.ok === false) info += ` · <span class="err">не вдалося завантажити: ${esc(st.error || "")}</span>`;
-  }
-  $("sched-info").innerHTML = info;
 }
 
-function renderBattery(rows, from, to) {
-  const W = 600, H = 160, top = 8, bot = 18, x = ts => (ts - from) / (to - from) * W, y = v => top + (100 - v) / 100 * (H - top - bot);
+// ---------- charts with a time axis and a hover tooltip ----------
+const fmtDM = new Intl.DateTimeFormat("uk-UA", {timeZone: TZ, day: "2-digit", month: "2-digit"});
+const fmtTip = new Intl.DateTimeFormat("uk-UA", {timeZone: TZ, day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"});
+
+function timeTicks(from, to) {
+  const span = to - from, out = [];
+  const step = span <= 2 * 86400 ? 3 * 3600 : span <= 8 * 86400 ? 86400 : 5 * 86400;
+  // align to whole hours / midnights of the viewer's clock (Kyiv for Roman)
+  const off = -new Date(from * 1000).getTimezoneOffset() * 60;
+  for (let x = Math.ceil((from + off) / step) * step - off; x <= to; x += step)
+    out.push({ts: x, label: step < 86400 ? fmtH.format(new Date(x * 1000)) : fmtDM.format(new Date(x * 1000))});
+  return out;
+}
+
+// opts: {box, from, to, rows, series: [{key, cls, color, axis: "l"|"r", min, max, unit, name, digits}], bands, gap, extra}
+function drawChart(opts) {
+  const box = $(opts.box), svg = box.querySelector("svg"), tip = box.querySelector(".tip");
+  const W = Math.max(300, svg.clientWidth), H = 260, L = 38, R = 40, T = 10, B = 24;
+  const x = ts => L + (ts - opts.from) / (opts.to - opts.from) * (W - L - R);
+  const ys = opts.series.map(sr => v => T + (sr.max - v) / (sr.max - sr.min) * (H - T - B));
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);  // real pixels: text is not stretched
   let s = "";
-  for (const v of [0, 50, 100]) s += `<line class="grid" x1="0" x2="${W}" y1="${y(v)}" y2="${y(v)}"/><text class="lbl" x="2" y="${y(v) - 2}">${v}%</text>`;
-  let startOff = null;
-  rows.forEach((r, i) => {
-    if (!r.ac && startOff == null) startOff = r.ts;
-    if ((r.ac || i === rows.length - 1) && startOff != null) {
-      s += `<rect class="acoff" x="${x(startOff)}" y="${top}" width="${Math.max(1, x(r.ts) - x(startOff))}" height="${H - top - bot}"/>`;
-      startOff = null;
+  for (const [a, z] of opts.bands || []) s += `<rect class="acoff" x="${x(a)}" y="${T}" width="${Math.max(1, x(z) - x(a))}" height="${H - T - B}"/>`;
+  for (let i = 0; i <= 4; i++) {
+    const yy = T + i / 4 * (H - T - B);
+    s += `<line class="grid" x1="${L}" x2="${W - R}" y1="${yy}" y2="${yy}"/>`;
+    for (const sr of opts.series) {
+      const v = sr.max - i / 4 * (sr.max - sr.min);
+      s += sr.axis === "r" ? `<text class="lbl" x="${W - R + 4}" y="${yy + 3}">${v.toFixed(0)}${sr.unit}</text>`
+                           : `<text class="lbl" x="${L - 4}" y="${yy + 3}" text-anchor="end">${v.toFixed(0)}${sr.unit}</text>`;
     }
+  }
+  for (const tk of timeTicks(opts.from, opts.to)) {
+    s += `<line class="grid" x1="${x(tk.ts)}" x2="${x(tk.ts)}" y1="${H - B}" y2="${H - B + 4}"/>`;
+    s += `<text class="lbl" x="${x(tk.ts)}" y="${H - 6}" text-anchor="middle">${tk.label}</text>`;
+  }
+  const rows = opts.rows;
+  opts.series.forEach((sr, k) => {
+    let seg = [], prev = null;
+    const flush = () => { if (seg.length > 1) s += `<polyline class="${sr.cls}" points="${seg.join(" ")}"/>`; seg = []; };
+    for (const r0 of rows) {
+      if (r0[sr.key] == null) continue;
+      if (prev != null && r0.ts - prev > (opts.gap || 1800)) flush();  // no data for a while: break the line
+      seg.push(`${x(r0.ts).toFixed(1)},${ys[k](r0[sr.key]).toFixed(1)}`);
+      prev = r0.ts;
+    }
+    flush();
   });
-  const pts = rows.filter(r => r.battery != null).map(r => `${x(r.ts).toFixed(1)},${y(r.battery).toFixed(1)}`);
-  if (pts.length > 1) s += `<polyline class="bat" points="${pts.join(" ")}"/>`;
-  else s += `<text class="lbl" x="${W / 2}" y="${H / 2}" text-anchor="middle">замало даних</text>`;
-  $("bat").innerHTML = s;
+  if (rows.filter(r0 => opts.series.some(sr => r0[sr.key] != null)).length < 2)
+    s += `<text class="lbl" x="${W / 2}" y="${H / 2}" text-anchor="middle">замало даних</text>`;
+  s += `<g class="hover"></g><rect x="${L}" y="${T}" width="${W - L - R}" height="${H - T - B}" fill="transparent" class="hit"/>`;
+  svg.innerHTML = s;
+
+  const g = svg.querySelector(".hover"), hit = svg.querySelector(".hit");
+  const move = ev => {
+    if (!rows.length) return;
+    const rect = svg.getBoundingClientRect();
+    // screen -> SVG coordinates (correct even if the SVG is letterboxed)
+    const pt = svg.createSVGPoint();
+    pt.x = ev.touches ? ev.touches[0].clientX : ev.clientX;
+    pt.y = ev.touches ? ev.touches[0].clientY : ev.clientY;
+    const px = pt.matrixTransform(svg.getScreenCTM().inverse()).x;
+    const ts = opts.from + (px - L) / (W - L - R) * (opts.to - opts.from);
+    let best = rows[0];
+    for (const r0 of rows) if (Math.abs(r0.ts - ts) < Math.abs(best.ts - ts)) best = r0;
+    const cx = x(best.ts);
+    let dots = `<line class="cursor" x1="${cx}" x2="${cx}" y1="${T}" y2="${H - B}"/>`;
+    const parts = [`<b>${fmtTip.format(new Date(best.ts * 1000))}</b>`];
+    opts.series.forEach((sr, k) => {
+      const v = best[sr.key];
+      if (v == null) return;
+      dots += `<circle cx="${cx}" cy="${ys[k](v)}" r="4" fill="${sr.color}"/>`;
+      parts.push(`<span style="color:${sr.color}">●</span> ${sr.name}: <b>${(+v).toFixed(sr.digits ?? 0)}${sr.unit}</b>`);
+    });
+    if (opts.extra) parts.push(...opts.extra(best));
+    g.innerHTML = dots;
+    tip.innerHTML = parts.join("<br>");
+    tip.style.display = "block";
+    const left = (svg.getScreenCTM().a * cx + svg.getScreenCTM().e) - rect.left;
+    tip.style.left = Math.min(rect.width - tip.offsetWidth - 4, Math.max(4, left + 12)) + "px";
+    tip.style.top = "8px";
+  };
+  const leave = () => { g.innerHTML = ""; tip.style.display = "none"; };
+  hit.addEventListener("mousemove", move);
+  hit.addEventListener("touchstart", move, {passive: true});
+  hit.addEventListener("touchmove", move, {passive: true});
+  hit.addEventListener("mouseleave", leave);
+}
+
+let lastBattery = null, lastEnv = null;
+
+function renderBattery(rows, from, to) {
+  lastBattery = [rows, from, to];
+  const bands = [];
+  let startOff = null;
+  rows.forEach((r, i) => {  // shade the time without the charger
+    if (!r.ac && startOff == null) startOff = r.ts;
+    if ((r.ac || i === rows.length - 1) && startOff != null) { bands.push([startOff, r.ts]); startOff = null; }
+  });
+  drawChart({box: "bat-box", from, to, rows, bands, gap: 900,
+    series: [{key: "battery", cls: "bat", color: "var(--accent)", axis: "l", min: 0, max: 100, unit: "%", name: "заряд"}],
+    extra: r => [r.ac ? "зарядка підключена" : `<span style="color:var(--off)">без зарядки</span>`]});
 }
 
 function renderEnv(r) {
-  const W = 600, H = 200, top = 10, bot = 18, rows = r.rows, from = r.from, to = r.to;
+  lastEnv = r;
   const L = r.last, fresh = L && (Date.now() / 1000 - L.ts) < 3600;
   $("env-now").innerHTML = L ? `<div>${L.t.toFixed(1)} °C<small>температура${fresh ? "" : ", " + t(L.ts)}</small></div>` +
       (L.h != null ? `<div>${Math.round(L.h)} %<small>вологість</small></div>` : "") +
       (L.p != null ? `<div>${Math.round(L.p)}<small>тиск, гПа</small></div>` : "")
     : `<div style="font-size:15px;color:var(--muted)">Ще немає даних з датчика</div>`;
-  const ts = rows.filter(x => x.t != null).map(x => x.t);
-  let s = "";
-  if (ts.length < 2) { $("env").innerHTML = `<text class="lbl" x="${W / 2}" y="${H / 2}" text-anchor="middle">замало даних</text>`; return; }
-  let tmin = Math.floor(Math.min(...ts) - 1), tmax = Math.ceil(Math.max(...ts) + 1);
-  const x = v => (v - from) / (to - from) * W;
-  const yT = v => top + (tmax - v) / (tmax - tmin) * (H - top - bot);
-  const yH = v => top + (100 - v) / 100 * (H - top - bot);
-  for (let i = 0; i <= 4; i++) {
-    const yy = top + i / 4 * (H - top - bot);
-    s += `<line class="grid" x1="0" x2="${W}" y1="${yy}" y2="${yy}"/>`;
-    s += `<text class="lbl" x="2" y="${yy - 2}">${(tmax - i / 4 * (tmax - tmin)).toFixed(0)}°</text>`;
-    s += `<text class="lbl r" x="${W - 2}" y="${yy - 2}">${100 - i * 25}%</text>`;
-  }
-  // a gap longer than 30 min (no light / no data) breaks the line instead of drawing a straight jump
-  const line = (key, y, cls) => {
-    let out = "", seg = [], prev = null;
-    for (const r0 of rows) {
-      if (r0[key] == null) continue;
-      if (prev != null && r0.ts - prev > 1800) { if (seg.length > 1) out += `<polyline class="${cls}" points="${seg.join(" ")}"/>`; seg = []; }
-      seg.push(`${x(r0.ts).toFixed(1)},${y(r0[key]).toFixed(1)}`); prev = r0.ts;
-    }
-    if (seg.length > 1) out += `<polyline class="${cls}" points="${seg.join(" ")}"/>`;
-    return out;
-  };
-  s += line("h", yH, "hum") + line("t", yT, "temp");
-  $("env").innerHTML = s;
+  const ts = r.rows.filter(x => x.t != null).map(x => x.t);
+  const tmin = ts.length ? Math.floor(Math.min(...ts) - 1) : 0, tmax = ts.length ? Math.ceil(Math.max(...ts) + 1) : 30;
+  drawChart({box: "env-box", from: r.from, to: r.to, rows: r.rows,
+    series: [{key: "t", cls: "temp", color: "#ff9f43", axis: "l", min: tmin, max: tmax, unit: "°", name: "температура", digits: 1},
+             {key: "h", cls: "hum", color: "var(--accent)", axis: "r", min: 0, max: 100, unit: "%", name: "вологість"}],
+    extra: r0 => r0.p != null ? [`тиск: <b>${Math.round(r0.p)} гПа</b>`] : []});
 }
+// redraw when the chart width changes (window resize, the page shown after being hidden)
+new ResizeObserver(() => {
+  if (lastBattery) renderBattery(...lastBattery);
+  if (lastEnv) renderEnv(lastEnv);
+}).observe(document.querySelector("main"));
 
 const E_TEXT = {
   power_lost: "світло зникло", power_restored: "світло з'явилось", link_restored: "зв'язок відновився (світло було)",
@@ -359,19 +424,14 @@ function renderEvents(list) {
 async function refresh() {
   try {
     const now = Date.now() / 1000;
-    const [s, w, b, e, env] = await Promise.all([get("api/status"), get(`api/daily?source=${source}&week=${week}`),
-      get("api/battery?hours=24"), get("api/events?limit=100&technical=" + $("tech").checked), get("api/sensors?hours=" + envHours)]);
-    renderStatus(s); renderWeek(w); renderBattery(b, now - 86400, now); renderEvents(e); renderEnv(env);
+    const [s, wh, wv, b, e, env] = await Promise.all([get("api/status"), get(`api/daily?source=home&week=${week}`),
+      get(`api/daily?source=village&week=${week}`), get("api/battery?hours=24"),
+      get("api/events?limit=100&technical=" + $("tech").checked), get("api/sensors?hours=" + envHours)]);
+    renderStatus(s); renderTable(wh, wv); renderBattery(b, now - 86400, now); renderEvents(e); renderEnv(env);
   } catch (err) {
     $("updated").innerHTML = `<span class="err">немає зв'язку з сервером</span>`;
   }
 }
-$("src").addEventListener("click", ev => {
-  const btn = ev.target.closest("button"); if (!btn) return;
-  source = btn.dataset.s;
-  [...$("src").children].forEach(x => x.classList.toggle("on", x === btn));
-  refresh();
-});
 $("env-range").addEventListener("click", ev => {
   const btn = ev.target.closest("button"); if (!btn) return;
   envHours = +btn.dataset.h;

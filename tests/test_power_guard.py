@@ -111,7 +111,16 @@ class GuardTest(unittest.TestCase):
         self.assertGreaterEqual(len(self.server.samples), 4)
         self.assertEqual(self.server.types(), ["guard_start"])
 
+    def test_sleeps_right_after_charger_is_gone_by_default(self):
+        self.g.start()
+        self.loop(30)
+        self.sys.set(ac=False)
+        self.loop(1)  # "ac_lost" and the first sleep come in the same second
+        self.assertEqual(self.server.types()[1:3], ["ac_lost", "sleep_start"])
+        self.assertEqual(len(self.rtcwake_calls()), 1)
+
     def test_ac_lost_reported_immediately_and_no_sleep_before_10_min(self):
+        self.g = self.make(SLEEP_AFTER_MIN="10")
         self.g.start()
         self.loop(60)
         self.sys.set(ac=False)
@@ -157,7 +166,7 @@ class GuardTest(unittest.TestCase):
         self.loop(40 * 60)
         gaps = [b - a for a, b in zip(starts, starts[1:])]
         self.assertGreaterEqual(len(gaps), 3)
-        self.assertTrue(all(g >= 300 + 20 for g in gaps), gaps)
+        self.assertTrue(all(g >= 300 + 8 for g in gaps), gaps)
 
     def test_low_battery_sleeps_early(self):
         self.g.start()

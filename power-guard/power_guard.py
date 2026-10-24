@@ -6,9 +6,9 @@ Standard library only, so nothing has to be installed on the host.
 
 States:
   NORMAL      charger connected. Sends a sample every REPORT_INTERVAL seconds.
-  ON_BATTERY  charger gone. Logs "ac_lost" at once and works like a UPS.
-              After SLEEP_AFTER_MIN minutes (or battery <= SLEEP_BELOW_PCT) it goes to
-              a sleep loop: rtcwake -m mem -s WAKE_INTERVAL, wake, check, sleep again.
+  ON_BATTERY  charger gone. Logs "ac_lost" at once; after SLEEP_AFTER_MIN minutes (default 0: at once,
+              or when battery <= SLEEP_BELOW_PCT) it goes to a sleep loop:
+              rtcwake -m mem -s WAKE_INTERVAL, wake for a few seconds, check, report, sleep again.
               Battery <= CRITICAL_PCT -> clean poweroff.
   OFF         written right before the clean poweroff, so the next start knows why.
 
@@ -34,13 +34,13 @@ DEFAULTS = {
     "SERVER_URL": "http://10.0.0.1:3003/api/power",
     "TOKEN": "",
     "REPORT_INTERVAL": "30",
-    "SLEEP_AFTER_MIN": "10",
+    "SLEEP_AFTER_MIN": "0",   # 0 = sleep right after the charger is gone (awake laptop drains fast)
     "SLEEP_BELOW_PCT": "30",
     "WAKE_INTERVAL": "300",
     "CRITICAL_PCT": "7",
     "KEEP_AWAKE": "false",
-    "NET_WAIT_S": "30",
-    "MIN_AWAKE_S": "20",
+    "NET_WAIT_S": "3",        # after waking: try to report for this long, then sleep (unsent events wait)
+    "MIN_AWAKE_S": "8",
     "AC_PATH": "/sys/class/power_supply/ADP1",
     "BAT_PATH": "/sys/class/power_supply/BAT1",
     "STATE_DIR": "/var/lib/power-guard",
@@ -241,6 +241,9 @@ class Guard:
             self.state, self.lost_at = ON_BATTERY, now
             self.emit("ac_lost")
             self.next_report = 0
+            if not self.keep_awake and self.sleep_after == 0:
+                self._save()
+                return 0  # go straight to the next step, which sends "ac_lost" and falls asleep
         elif self.state == ON_BATTERY:
             if r["ac"]:
                 self._restored(now)
