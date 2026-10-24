@@ -33,6 +33,9 @@ struct Config {
   String cmdKey;
   uint32_t cmdTs = 0;  // time of the last executed command: older or repeated ones are ignored
   String cmdResult;    // "reboot#1792900000 ok", for the status page and the ping body
+  // "AA:BB:CC:DD:EE:FF" = connect only to this access point (the main router), not to a repeater with the
+  // same network name. If it is not seen for 5 minutes, any access point of the networks is used. "" = off.
+  String bssidLock;
 
   bool hasNetworks() const;
 };

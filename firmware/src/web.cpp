@@ -100,6 +100,15 @@ static void handleStatus() {
   b += row(F("Аптайм"), String((unsigned long)uptimeSeconds()) + F(" с"));
   b += row(F("Wi-Fi"), wifi ? String(F("<span class=ok>")) + esc(WiFi.SSID()) + F("</span>, ") + WiFi.RSSI() + F(" dBm")
                             : String(F("<span class=bad>не підключено</span>")));
+  if (wifi) {
+    String ap = WiFi.BSSIDstr() + F(", канал ") + WiFi.channel();
+    if (st.cfg.bssidLock.length())
+      ap += WiFi.BSSIDstr().equalsIgnoreCase(st.cfg.bssidLock) ? F(" <span class=ok>(прив'язана)</span>")
+                                                               : F(" <span class=bad>(не прив'язана: її не видно?)</span>");
+    b += row(F("Точка Wi-Fi (BSSID)"), ap);
+  }
+  b += row(F("Прив'язка до точки"), st.cfg.bssidLock.length() ? esc(st.cfg.bssidLock) : String(F("немає (найсильніша)")));
+  if (st.wifiSeen.length()) b += row(F("Видно під час підключення"), esc(st.wifiSeen));
   b += row(F("IP"), wifi ? WiFi.localIP().toString() : String("—"));
   if (st.apActive) b += row(F("Точка доступу"), F("SVITLO-LOCAL, 192.168.4.1"));
   b += row(F("Сервер"), esc(maskedUrl(st.cfg.url)));
@@ -202,6 +211,12 @@ static void handleSettingsGet() {
          F(" value=\"") + esc(c.nets[i].ssid) + F("\"><label>Пароль</label><input type=password name=p") + i +
          F(" placeholder=\"") + (c.nets[i].pass.length() ? F("без змін") : F("")) + F("\"></div>");
   }
+  b += F("<div class=card><h2>Прив'язка до точки доступу</h2><p class=muted>BSSID основного роутера, напр. "
+         "AA:BB:CC:DD:EE:FF. Тоді плата не підключається до ретранслятора з тією самою назвою мережі. Якщо цієї "
+         "точки не видно 5 хв, підійде будь-яка точка цих мереж. Порожньо = найсильніша.</p>"
+         "<label>BSSID</label><input name=bssid value=\"");
+  b += esc(st.cfg.bssidLock);
+  b += F("\"></div>");
   b += F("<div class=card><h2>Сервер</h2><label>URL (https://hc-ping.com/&lt;UUID&gt; або http://сервер/api/heartbeat)</label>"
          "<input name=url value=\"");
   b += esc(c.url);
@@ -287,15 +302,22 @@ static void handleSettingsPost() {
   }
   if (server.hasArg("fclat")) c.fcLat = constrain(server.arg("fclat").toFloat(), -90.0f, 90.0f);
   if (server.hasArg("fclon")) c.fcLon = constrain(server.arg("fclon").toFloat(), -180.0f, 180.0f);
+  if (server.hasArg("bssid")) {
+    c.bssidLock = server.arg("bssid");
+    c.bssidLock.trim();
+    c.bssidLock.toUpperCase();
+  }
   if (server.hasArg("hoff")) c.humOffset = constrain(server.arg("hoff").toFloat(), -30.0f, 30.0f);
 
   String err;
+  uint8_t mac[6];
   if (url.length() && !url.startsWith("http://") && !url.startsWith("https://")) err = F("URL має починатися з http:// або https://");
   else if (interval < 30 || interval > 3600) err = F("Інтервал має бути від 30 до 3600 секунд");
   else if (admin.length() && admin.length() < 8) err = F("Пароль адміністратора — щонайменше 8 символів");
   else if (!admin.length() && !c.adminPass.length()) err = F("Задайте пароль адміністратора");
   else if (c.tlsMode == "fingerprint" && c.fingerprint.length() < 40) err = F("Для режиму «відбиток» потрібен SHA-1 відбиток");
   else if (ckey.length() && ckey.length() < 16) err = F("Ключ команд — щонайменше 16 символів");
+  else if (c.bssidLock.length() && !parseBssid(c.bssidLock, mac)) err = F("BSSID має вигляд AA:BB:CC:DD:EE:FF");
   if (err.length()) {
     sendPage(String(F("<h1>Не збережено</h1><p class=bad>")) + err + F("</p><p><a href=/settings>← назад</a></p>"), 400);
     return;

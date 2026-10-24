@@ -88,6 +88,10 @@ static String body() {
     b += jsonEsc(otaStatus);
     b += '"';
   }
+  b += F(",\"ap\":\"");  // BSSID the board is connected to, and whether it is the locked one
+  b += WiFi.BSSIDstr();
+  b += F("\",\"ch\":");
+  b += WiFi.channel();
   b += F(",\"rst\":\"");  // why this start happened (an exception shows a crash before it)
   b += jsonEsc(resetText());
   b += F("\",\"fw\":\"" FW_VERSION "\"}");

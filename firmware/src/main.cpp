@@ -17,6 +17,7 @@
 #include <ESP8266WiFi.h>
 #include <ESP8266WiFiMulti.h>
 #include <ESP8266mDNS.h>
+#include <Ticker.h>
 #include <time.h>
 
 #include "config.h"
@@ -40,10 +41,14 @@ static const char *TZ_KYIV = "EET-2EEST,M3.5.0/3,M10.5.0/4";
 static const int LED_PIN = 2;  // GPIO2, LED on the ESP-12 module, lit when LOW
 static const uint32_t AP_AFTER_MS = 60000;      // no Wi-Fi for this long -> turn the setup AP on
 static const uint32_t AP_OFF_AFTER_MS = 120000; // connected for this long and nobody on the AP -> AP off
+static const uint32_t LOCK_GRACE_MS = 300000;   // locked access point not seen this long -> any one of the networks
 static const int FLASH_PIN = 0;                 // GPIO0 = FLASH button (pressing it at power-on = bootloader)
 static const uint32_t RESET_HOLD_MS = 10000;
 
 static ESP8266WiFiMulti multi;
+static Ticker loopWatch;
+static volatile uint32_t loopSeenMs = 0;
+static const uint32_t LOOP_STUCK_MS = 180000;
 static uint32_t lastConnectedMs = 0;
 static uint32_t connectedSinceMs = 0;
 static bool wasConnected = false;
@@ -120,6 +125,100 @@ static void onConnected() {
   MDNS.addService("http", "tcp", 80);
 }
 
+bool parseBssid(const String &s, uint8_t out[6]) {
+  if (s.length() != 17) return false;
+  for (int i = 0; i < 6; i++) {
+    if (i < 5 && s[i * 3 + 2] != ':') return false;
+    char *end;
+    String part = s.substring(i * 3, i * 3 + 2);
+    long v = strtol(part.c_str(), &end, 16);
+    if (*end || !isxdigit((unsigned char)part[0]) || !isxdigit((unsigned char)part[1])) return false;
+    out[i] = (uint8_t)v;
+  }
+  return true;
+}
+
+static int netIndex(const String &ssid) {
+  for (int i = 0; i < 3; i++)
+    if (st.cfg.nets[i].ssid.length() && st.cfg.nets[i].ssid == ssid) return i;
+  return -1;
+}
+
+// Waits until the connection succeeds or clearly fails. WiFi.waitForConnectResult() returns at the first
+// status other than "disconnected", which right after begin() is often just "idle".
+static bool waitConnected(uint32_t ms) {
+  for (uint32_t t0 = millis(); millis() - t0 < ms; delay(100)) {
+    wl_status_t s = WiFi.status();
+    if (s == WL_CONNECTED) return true;
+    if (s == WL_WRONG_PASSWORD || s == WL_CONNECT_FAILED) break;
+  }
+  Serial.printf("Wi-Fi: not connected, status %d\n", (int)WiFi.status());
+  return false;
+}
+
+// One connection attempt. Scans, then tries the locked access point if it is set and seen, otherwise (or if
+// it is not seen for LOCK_GRACE_MS) the access points of the configured networks from the strongest down,
+// each pinned to its BSSID and channel, so the SDK does not wander off to a repeater with the same name
+// (25.10.2026: next to the router the board sat on a repeater at -80 dBm, and the Wi-Fi stack crashed).
+static bool connectBest() {
+  static uint32_t lockMissSince = 0;
+  uint8_t lock[6];
+  bool hasLock = parseBssid(st.cfg.bssidLock, lock);
+  // Like ESP8266WiFiMulti: the SDK refuses to scan while it is still trying to connect, so drop that
+  // first, and scan asynchronously with a time limit (a synchronous scan waits forever if the SDK
+  // never reports the end; 0.8.3 sat without Wi-Fi like that, 25.10.2026).
+  WiFi.scanDelete();
+  WiFi.disconnect();
+  WiFi.scanNetworks(true, false);
+  int n = WIFI_SCAN_RUNNING;
+  for (uint32_t t0 = millis(); n < 0 && millis() - t0 < 8000; delay(100)) n = WiFi.scanComplete();
+  if (n < 0) Serial.printf("Wi-Fi: scan failed (%d)\n", n);
+  struct Cand {
+    String ssid;
+    uint8_t bssid[6];
+    int32_t ch, rssi;
+    bool locked;
+  };
+  Cand c[6];
+  int nc = 0;
+  bool lockedSeen = false;
+  String seen;
+  for (int i = 0; i < n; i++) {
+    if (netIndex(WiFi.SSID(i)) < 0) continue;
+    if (seen.length()) seen += F("; ");
+    seen += WiFi.SSID(i) + ' ' + WiFi.BSSIDstr(i) + F(" ch ") + WiFi.channel(i) + ' ' + WiFi.RSSI(i) + F(" dBm");
+    bool locked = hasLock && !memcmp(WiFi.BSSID(i), lock, 6);
+    lockedSeen |= locked;
+    if (nc < 6) {
+      c[nc].ssid = WiFi.SSID(i);
+      memcpy(c[nc].bssid, WiFi.BSSID(i), 6);
+      c[nc].ch = WiFi.channel(i);
+      c[nc].rssi = locked ? 1000 : WiFi.RSSI(i);  // the locked one sorts first
+      c[nc].locked = locked;
+      nc++;
+    }
+  }
+  WiFi.scanDelete();
+  st.wifiSeen = n < 0 ? String(F("помилка сканування")) : seen.length() ? seen : String(F("жодної точки налаштованих мереж"));
+  for (int i = 1; i < nc; i++)  // strongest first
+    for (int j = i; j > 0 && c[j].rssi > c[j - 1].rssi; j--) std::swap(c[j], c[j - 1]);
+  uint32_t now = millis();
+  if (!hasLock || lockedSeen) lockMissSince = 0;
+  else if (!lockMissSince) lockMissSince = now | 1;
+  bool othersToo = !hasLock || (!lockedSeen && now - lockMissSince > LOCK_GRACE_MS);
+  if (hasLock && !lockedSeen) Serial.println(F("Wi-Fi: the locked access point is not seen"));
+  for (int i = 0; i < nc; i++) {
+    if (!c[i].locked && !othersToo) continue;
+    const WifiNet &net = st.cfg.nets[netIndex(c[i].ssid)];
+    const uint8_t *b = c[i].bssid;
+    Serial.printf("Wi-Fi: %s %02X:%02X:%02X:%02X:%02X:%02X ch %d%s\n", c[i].ssid.c_str(), b[0], b[1], b[2], b[3],
+                  b[4], b[5], (int)c[i].ch, c[i].locked ? " (locked)" : "");
+    WiFi.begin(c[i].ssid.c_str(), net.pass.c_str(), c[i].ch, c[i].bssid);
+    if (waitConnected(15000)) return true;
+  }
+  return false;
+}
+
 static void wifiLoop() {
   uint32_t now = millis();
   if (!st.cfg.hasNetworks()) return;  // only the setup AP
@@ -128,9 +227,7 @@ static void wifiLoop() {
   bool connected = WiFi.status() == WL_CONNECTED;
   if (!connected && (now - lastTry > 10000 || !lastTry)) {
     lastTry = now;
-    // Tries the networks it can see, strongest of the configured ones first; short timeout so
-    // the web page and LED keep working.
-    if (multi.run(4000) == WL_CONNECTED) connected = true;
+    if (connectBest()) connected = true;
   }
 
   if (connected && !wasConnected) {
@@ -213,16 +310,23 @@ void setup() {
   } else {
     apStart();
   }
-  // 802.11g only: the SDK crashed every few minutes on beacons of the village router (Exception 29 in
-  // ieee80211_setup_ratetable via cnx_update_bss_more, 24-25.10.2026, also with plenty of free heap).
-  // Known SDK bug (espressif/ESP8266_NONOS_SDK#320); 11g avoids it, and we need no 11n speed.
-  WiFi.setPhyMode(WIFI_PHY_MODE_11G);
+  // 11b/g/n, set explicitly: the SDK keeps the PHY mode in its own flash, so the 11g of 0.8.2 (tried against
+  // the SDK beacon crash) stayed even after that line was removed. The village router runs "802.11n only"
+  // and does not let a 11g client in, so with 11g the board ended up on the repeater (25.10.2026).
+  WiFi.setPhyMode(WIFI_PHY_MODE_11N);
   otaBoot(multi);  // a requested remote update runs now, while the heap is free; on success it restarts
   webBegin();
+  // loop() stuck (a call that never returns) = the 15-minute trial check in loop() would never run either.
+  // This timer still fires then and restarts the board; 3 such starts of a new version return the golden one.
+  loopSeenMs = millis();
+  loopWatch.attach(10, [] {
+    if (millis() - loopSeenMs > LOOP_STUCK_MS) ESP.restart();
+  });
   lastConnectedMs = millis();
 }
 
 void loop() {
+  loopSeenMs = millis();
   uptimeSeconds();  // keep the 64-bit counter ticking even if nobody asks
   resetButtonLoop();
   wifiLoop();
