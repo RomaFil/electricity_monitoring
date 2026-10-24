@@ -119,6 +119,8 @@ class ApiTest(unittest.TestCase):
             self.assertEqual(cmd, "ota:0.7.1")
             self.assertEqual(sent[-1], healthchecks.sign_cmd("k" * 20, cmd, int(ts)))
             self.assertEqual(self.c.get("/api/status").json()["village"]["esp_cmd_sent"]["cmd"], "ota:0.7.1")
+            self.assertEqual(self.c.post("/api/esp/command", json={"cmd": "golden"}).status_code, 200)
+            self.assertEqual(sent[-1].split("#")[0], "golden")
         finally:
             healthchecks.HealthchecksRelay.set_cmd = orig
             firmware._cache.update(at=0.0, ttl=0.0, data=None)

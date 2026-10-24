@@ -159,7 +159,7 @@ def api_esp_display(request: Request, body: Any = Body(None), c=Depends(con)):
     return cmd
 
 
-ESP_COMMANDS = ("reboot", "sensor", "ota")
+ESP_COMMANDS = ("reboot", "sensor", "ota", "golden")
 
 
 @app.get("/api/esp/firmware")

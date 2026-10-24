@@ -250,7 +250,7 @@ function newer(a, b) {
 }
 
 const cmdName = c => c === "reboot" ? "перезапуск" : c === "sensor" ? "перечитати датчик"
-  : c.startsWith("ota:") ? `оновлення до ${c.slice(4)}` : c;
+  : c === "golden" ? "зробити запасною" : c.startsWith("ota:") ? `оновлення до ${c.slice(4)}` : c;
 // "sensor#1792900000 датчик перечитано: 21.3 °C" (ping body) -> readable text
 function cmdText(s) {
   const m = /^([^#\s]+)#(\d+) (.*)$/.exec(s || "");
@@ -271,12 +271,17 @@ function renderCtl(v, fw, now) {
   p.push(`Прошивка: <b>${esc(dg.fw || "?")}</b>, ${sig}`);
   if (dg.cmd) p.push(`Остання команда: ${cmdText(dg.cmd)}`);
   if (dg.ota) p.push(`Оновлення: ${esc(dg.ota)}`);
+  // golden copy (firmware 0.8.0+): a new version on trial returns to it by itself if it loses the link
+  if (dg.gold != null) p.push(`Запасна прошивка: <b>${dg.gold ? esc(dg.gold) : "немає"}</b>` +
+    (+dg.trial ? `, <span class="u">${esc(dg.fw)} на перевірці: без пінгу й команд протягом 15 хв плата сама повернеться на запасну</span>` : ""));
   if (sent && sent.ok === false) p.push(`<span class="err">Команду не надіслано: ${esc(sent.error || "")}</span>`);
   else if (sent && now - sent.at < 900 && !String(dg.cmd || "").startsWith(`${sent.cmd}#${sent.at}`))
     p.push(`Надіслано «${esc(cmdName(sent.cmd))}» о ${fmtH.format(new Date(sent.at * 1000))}, плата виконає протягом ~2 хв`);
   const latest = (fw.versions || [])[0];
   let btns = `<button class="btn2" data-cmd="reboot">↻ Перезапустити плату</button> ` +
              `<button class="btn2" data-cmd="sensor">🌡 Перечитати датчик</button>`;
+  if (dg.gold != null && dg.fw && dg.gold !== dg.fw && !+dg.trial)
+    btns += ` <button class="btn2" data-cmd="golden">💾 Зробити ${esc(dg.fw)} запасною</button>`;
   if (latest && dg.fw && newer(latest.version, dg.fw))
     btns += ` <button class="btn2" data-cmd="ota" data-v="${esc(latest.version)}"${+dg.sig ? "" : " disabled"}>⬆ Оновити до ${esc(latest.version)}</button>`;
   else if (latest) p.push(`<span class="u">Найновіша підписана версія на GitHub: ${esc(latest.version)}</span>`);
@@ -285,6 +290,7 @@ function renderCtl(v, fw, now) {
   box.querySelectorAll("button[data-cmd]").forEach(b => b.onclick = async () => {
     const cmd = b.dataset.cmd, version = b.dataset.v;
     const q = {reboot: "Перезапустити плату в селі?", sensor: "Перечитати датчик (BME280)?",
+               golden: "Зробити поточну прошивку запасною? До неї плата повертатиметься, якщо нова версія втратить зв'язок.",
                ota: `Оновити прошивку плати до ${version}? Плата сама завантажить підписаний образ з GitHub і перезапуститься.`}[cmd];
     if (!confirm(q)) return;
     b.disabled = true;

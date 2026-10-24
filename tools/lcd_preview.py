@@ -157,8 +157,12 @@ def forecast(now_t, now_sky, tmr_min, tmr_max, tmr_sky, rain=-1, name="Babyntsi"
     l2 = "Zavtra" + ICON_TMR + " " + temps
     if rain >= 20:
         pct = f"{rain}%"
+        word = "Zavtra"
         if len(l2) + 1 + len(pct) > 16:
-            l2 = "Zavtra" + ICON_TMR + temps  # no space after the icon when it does not fit
+            l2 = word + ICON_TMR + temps  # no space after the icon when it does not fit
+        while len(l2) + 1 + len(pct) > 16 and len(word) > 2:  # winter minuses: a shorter word
+            word = word[:-1]
+            l2 = word + ICON_TMR + temps
         if len(l2) + 1 + len(pct) <= 16:
             l2 = l2.ljust(16 - len(pct)) + pct
     return [l1, l2]

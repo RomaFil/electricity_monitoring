@@ -7,12 +7,13 @@
 #include <bearssl/bearssl.h>
 #include <memory>
 
-#include "certs.h"
 #include "config.h"
 #include "heartbeat.h"
+#include "golden.h"
 #include "ota.h"
 #include "sensors.h"
 #include "state.h"
+#include "trust.h"
 
 String remoteStatus;
 static const uint32_t EVERY_MS = 120000;
@@ -133,6 +134,7 @@ static void applyCommand(const String &desc) {
     return finish(cmd, ts, ok ? String(F("датчик перечитано: ")) + String(env.t, 1) + F(" °C")
                               : String(F("датчик не відповідає")), false);
   }
+  if (cmd == "golden") return finish(cmd, ts, goldenSave(), false);
   if (cmd.startsWith("ota:")) {
     String ver = cmd.substring(4);
     if (!otaSigned()) return finish(cmd, ts, F("відхилено: ця прошивка не перевіряє підпис"), false);
@@ -151,10 +153,8 @@ static void poll() {
     return;
   }
 
-  static BearSSL::X509List *ta = nullptr;  // healthchecks.io has the same Sectigo chain as hc-ping.com
-  if (!ta) ta = new BearSSL::X509List(ROOT_CA_SECTIGO_E46);
   std::unique_ptr<BearSSL::WiFiClientSecure> tls(new BearSSL::WiFiClientSecure());
-  tls->setTrustAnchors(ta);
+  tls->setTrustAnchors(trustSectigo());  // healthchecks.io has the same Sectigo chain as hc-ping.com
   if (timeValid()) tls->setX509Time(time(nullptr));
   tls->setTimeout(15000);
 

@@ -23,5 +23,8 @@ bool otaRequest(const String &version);
 // and, if an update was requested, downloads and installs it (on success the board restarts).
 void otaBoot(ESP8266WiFiMulti &multi);
 
+// Replaces the result text (the return to the golden copy reports through it).
+void otaNote(const String &text);
+
 // Result of the last update attempt for the status page and the ping body ("" = never).
 extern String otaStatus;

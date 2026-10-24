@@ -5,20 +5,16 @@
 #include <WiFiClientSecureBearSSL.h>
 #include <memory>
 
-#include "certs.h"
+#include "golden.h"
 #include "ota.h"
 #include "sensors.h"
 #include "state.h"
+#include "trust.h"
 
 // If NTP has not answered yet, certificate dates are checked against this moment
 // (21.10.2026, when this firmware was written) so HTTPS still works right after boot.
 static const time_t FALLBACK_TIME = 1792540800;
 
-static BearSSL::X509List *trustAnchor() {
-  static BearSSL::X509List *ta = nullptr;
-  if (!ta) ta = new BearSSL::X509List(ROOT_CA_SECTIGO_E46);
-  return ta;
-}
 
 static String jsonEsc(const String &s) {
   String o;
@@ -41,6 +37,8 @@ static String body() {
   b += st.failsTotal;
   b += F(",\"heap\":");
   b += ESP.getFreeHeap();
+  b += F(",\"blk\":");  // largest free block: HTTPS needs ~16.7 KB in one piece
+  b += ESP.getMaxFreeBlockSize();
   // Village temperature / humidity / pressure for the dashboard chart (only when the sensor works)
   if (env.ok) {
     b += F(",\"t\":");
@@ -67,6 +65,10 @@ static String body() {
     b += jsonEsc(st.cfg.cmdResult);
     b += '"';
   }
+  b += F(",\"gold\":\"");  // golden copy version ("" = none), and 1 while this version is on trial
+  b += jsonEsc(goldenVersion());
+  b += F("\",\"trial\":");
+  b += goldenTrial() ? 1 : 0;
   if (otaStatus.length()) {
     b += F(",\"ota\":\"");
     b += jsonEsc(otaStatus);
@@ -97,7 +99,7 @@ bool heartbeatSend() {
     } else if (c.tlsMode == "fingerprint") {
       tls->setFingerprint(c.fingerprint.c_str());
     } else {
-      tls->setTrustAnchors(trustAnchor());
+      tls->setTrustAnchors(trustSectigo());
       tls->setX509Time(timeValid() ? time(nullptr) : FALLBACK_TIME);
     }
     tls->setTimeout(15000);
@@ -119,6 +121,7 @@ bool heartbeatSend() {
   http.addHeader(F("Content-Type"), F("application/json"));
   if (c.deviceKey.length()) http.addHeader(F("X-Device-Key"), c.deviceKey);
 
+  Serial.printf("heap %u, largest block %u\n", ESP.getFreeHeap(), ESP.getMaxFreeBlockSize());
   int code = http.POST(body());
   bool ok = code >= 200 && code < 300;
   st.lastCode = code;

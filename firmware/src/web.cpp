@@ -8,6 +8,7 @@
 #include "config.h"
 #include "display.h"
 #include "forecast.h"
+#include "golden.h"
 #include "heartbeat.h"
 #include "ota.h"
 #include "remote.h"
@@ -144,6 +145,7 @@ static void handleStatus() {
   b += row(F("Підпис прошивки"), otaSigned() ? String(F("<span class=ok>увімкнено: приймає лише підписані образи</span>"))
                                              : String(F("<span class=bad>вимкнено: зібрано без public.key, "
                                                         "оновлення з дашборда вимкнені</span>")));
+  b += row(F("Запасна прошивка"), esc(goldenInfo()));
   b += row(F("Оновлення з GitHub"), otaStatus.length() ? esc(otaStatus) : String(F("ще не було")));
   b += row(F("Режим"), st.cfg.displayOn ? String(F("звичайний (дисплей увімкнено)"))
                                          : String(F("<span class=ok>моніторинг: дисплей вимкнено</span>")));

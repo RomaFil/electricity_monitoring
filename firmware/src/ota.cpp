@@ -55,6 +55,11 @@ void otaSignatureBegin() {
 
 bool otaSigned() { return signedOnly; }
 
+void otaNote(const String &text) {
+  otaStatus = text;
+  writeFile(RESULT_FILE, text);
+}
+
 bool otaVersionOk(const String &v) {
   if (!v.length() || v.length() > 12) return false;
   int dots = 0;

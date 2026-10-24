@@ -22,11 +22,13 @@
 #include "config.h"
 #include "display.h"
 #include "forecast.h"
+#include "golden.h"
 #include "ota.h"
 #include "remote.h"
 #include "heartbeat.h"
 #include "sensors.h"
 #include "state.h"
+#include "trust.h"
 #include "web.h"
 
 State st;
@@ -181,6 +183,14 @@ void setup() {
 
   pinMode(FLASH_PIN, INPUT_PULLUP);
   configBegin();
+  trustBegin();  // certificates at the bottom of the heap, before anything else allocates
+  goldenBoot();  // as early as possible: counts the starts of a new version, may return to the golden copy
+#ifdef SVITLO_TEST_CRASH
+  // Test build only (firmware/README): dies right after goldenBoot() to check the return to the golden copy.
+  Serial.println(F("SVITLO_TEST_CRASH: crashing on purpose"));
+  delay(500);
+  *(volatile int *)0 = 1;
+#endif
   otaSignatureBegin();  // before anything can install an image (the /update page, a remote update)
   setenv("TZ", TZ_KYIV, 1);
   tzset();
@@ -193,8 +203,10 @@ void setup() {
   WiFi.persistent(false);  // our own config is the only source of truth, not the SDK flash area
   WiFi.setAutoReconnect(true);
   WiFi.hostname(HOSTNAME);
+#ifndef SVITLO_TEST_NO_WIFI  // test build only: never connects, to check the 15-minute return to the golden copy
   for (const auto &n : st.cfg.nets)
     if (n.ssid.length()) multi.addAP(n.ssid.c_str(), n.pass.c_str());
+#endif
 
   if (st.cfg.hasNetworks()) {
     WiFi.mode(WIFI_STA);
@@ -217,5 +229,6 @@ void loop() {
   heartbeatLoop();
   forecastLoop();
   remoteLoop();
+  goldenLoop();
   ledLoop();
 }

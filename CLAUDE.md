@@ -30,6 +30,10 @@ release list every 10 minutes).
 - A new firmware goes to the village only after it ran on the board while Roman is next to it: ESP8266 has no
   rollback, a broken Wi-Fi or command path means a trip to the village.
 - Do not open ports anywhere (router, VPS). Everything is outgoing-only by design.
+- Builds with `-DSVITLO_TEST_CRASH` / `-DSVITLO_TEST_NO_WIFI` exist only to test the return to the golden copy
+  (`golden.cpp`): use a throw-away version like `0.8.0.1`, upload locally, never attach them to a release.
+- Do not add a lazily allocated BearSSL object (trust anchors, keys) in the middle of a run: HTTPS needs one free
+  ~16.7 KB block and the heap is ~27 KB (see README "Пам'ять і HTTPS"); use `trust.cpp` / allocate in setup().
 
 ## Commands
 

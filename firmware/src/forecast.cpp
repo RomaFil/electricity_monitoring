@@ -6,8 +6,8 @@
 #include <WiFiClientSecureBearSSL.h>
 #include <memory>
 
-#include "certs.h"
 #include "state.h"
+#include "trust.h"
 
 Forecast fc;
 
@@ -37,10 +37,8 @@ static bool fetch() {
            "&timezone=Europe%%2FKyiv&forecast_days=2",
            c.fcLat, c.fcLon);
 
-  static BearSSL::X509List *ta = nullptr;
-  if (!ta) ta = new BearSSL::X509List(ROOT_CA_LETSENCRYPT);
   std::unique_ptr<BearSSL::WiFiClientSecure> tls(new BearSSL::WiFiClientSecure());
-  tls->setTrustAnchors(ta);
+  tls->setTrustAnchors(trustLetsEncrypt());
   if (timeValid()) tls->setX509Time(time(nullptr));
   tls->setTimeout(15000);
 
