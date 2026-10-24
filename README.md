@@ -26,7 +26,46 @@ Clean room: зроблено лише за власною специфікаці
 | `power-guard/` | Сервіс для Proxmox-хоста: стежить за зарядкою, засинає, вимикається при розряді |
 | `firmware/` | Прошивка NodeMCU (ESP8266): пінг, точка налаштування, LCD, BME280, DS3231 |
 | `tools/emulator.py` | Емулятор ESP і power-guard для тестів без заліза |
+| `tools/lcd_preview.py` | Картинки екранів LCD 1602 прямо з `display.cpp` (потрібен Pillow) |
+| `docs/` | Картинки: LCD, сторінки плати, дашборд |
 | `tests/` | Юніт-тести машин станів і API |
+
+## Як це виглядає
+
+### LCD 1602 на платі
+
+Усі екрани прошивки 0.7.0 (`docs/lcd/`). Їх малює `python tools/lcd_preview.py`: логіка екранів перенесена з `display.cpp`, а власні символи й іконки погоди читаються з самого `display.cpp`, тож після змін у дисплеї картинки варто перегенерувати.
+
+![Екрани LCD](docs/lcd/all-screens.png)
+
+Цикл 15 с: 9 с годинник, 3 с кімната (BME280), 3 с прогноз Open-Meteo.
+
+![Цикл екранів](docs/lcd/cycle.gif)
+
+### Сторінки плати
+
+HTML з справжнього `web.cpp`, зібраного на ПК з заглушками замість ESP8266; значення вигадані, UUID — нулі (`docs/esp/`).
+
+| Статус | Статус без підпису прошивки | Налаштування |
+|---|---|---|
+| ![](docs/esp/status.png) | ![](docs/esp/status-unsigned.png) | ![](docs/esp/settings.png) |
+
+### Дашборд
+
+Знімки на вигаданих даних (`docs/dashboard/`).
+
+![Огляд: картки, графік з планом ДТЕК, таблиця факт/графік](docs/dashboard/01-overview.png)
+
+| Стан | Знімок |
+|---|---|
+| Графік «Село»: жовте — світло було без зв'язку, штрихи — можливе відключення за ДТЕК | [02-village-week.png](docs/dashboard/02-village-week.png) |
+| Картка «Село» з віддаленим керуванням платою | [03-esp-remote-control.png](docs/dashboard/03-esp-remote-control.png) |
+| Команду «оновити до 0.7.1» надіслано, плата ще не виконала | [04-esp-command-sent.png](docs/dashboard/04-esp-command-sent.png) |
+| Село: немає сигналу | [05-village-offline.png](docs/dashboard/05-village-offline.png) |
+| Дім: сервер спить | [06-home-sleeping.png](docs/dashboard/06-home-sleeping.png) |
+| Дім: вимкнувся через розряд | [07-home-off.png](docs/dashboard/07-home-off.png) |
+| Кімната й надворі за тиждень | [08-room-and-outdoor-week.png](docs/dashboard/08-room-and-outdoor-week.png) |
+| Телефон (390 px) | [09-mobile.png](docs/dashboard/09-mobile.png) |
 
 ## Встановлення
 
