@@ -250,22 +250,27 @@ static void handleSettingsGet() {
 static void handleSettingsPost() {
   if (!authOk()) return;
   Config c = st.cfg;
+  // The form always sends every field. A field that is missing (e.g. "curl -d ckey=..." that sets only
+  // the command key) keeps its value, so a partial request can never wipe the Wi-Fi networks or the URL.
   for (int i = 0; i < 3; i++) {
+    if (!server.hasArg(String("s") + i)) continue;
     c.nets[i].ssid = server.arg(String("s") + i);
     c.nets[i].ssid.trim();
     String p = server.arg(String("p") + i);
     if (p.length()) c.nets[i].pass = p;
     if (!c.nets[i].ssid.length()) c.nets[i].pass = "";
   }
-  String url = server.arg("url");
+  String url = server.hasArg("url") ? server.arg("url") : c.url;
   url.trim();
   String key = server.arg("key");
   if (key.length()) c.deviceKey = key;
-  long interval = server.arg("interval").toInt();
-  c.tlsMode = server.arg("tls");
+  long interval = server.hasArg("interval") ? server.arg("interval").toInt() : (long)c.intervalS;
+  if (server.hasArg("tls")) c.tlsMode = server.arg("tls");
   if (c.tlsMode != "fingerprint" && c.tlsMode != "insecure") c.tlsMode = "ca";
-  c.fingerprint = server.arg("fp");
-  c.fingerprint.trim();
+  if (server.hasArg("fp")) {
+    c.fingerprint = server.arg("fp");
+    c.fingerprint.trim();
+  }
   String admin = server.arg("admin");
   if (server.hasArg("toff")) c.tempOffset = constrain(server.arg("toff").toFloat(), -10.0f, 10.0f);
   String rokey = server.arg("rokey");

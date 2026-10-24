@@ -8,7 +8,7 @@
 ```
 cd electricity_monitoring
 git fetch origin
-git checkout main && git pull          # після злиття гілки claude/busy-clarke-bgvfdb
+git checkout main && git pull
 cd firmware
 pip install cryptography
 python make_keys.py                    # private.key + public.key
@@ -24,12 +24,20 @@ python -m platformio run -t upload --upload-port COM16    # USB; або по Wi-
 python -c "import secrets;print(secrets.token_urlsafe(32))"   # ключ команд -> у KeePass
 ```
 
-## 2. Плата (світло не потрібне, з телефона)
+## 2. Плата (світло не потрібне)
 
-- Без відомої мережі плата через 1 хв вмикає точку **SVITLO-LOCAL** (пароль = пароль адміністратора).
-  Якщо роутер працює — просто `http://svitlo-local.local/`.
-- `http://192.168.4.1/settings` → **«Ключ команд»** → вставити ключ з п. 1 → «Зберегти й перезавантажити».
-- `http://192.168.4.1/` → має бути **«Прошивка 0.7.0»** і **«Підпис прошивки: увімкнено»**.
+Адреса плати: `svitlo-local.local`, якщо роутер працює; інакше плата через 1 хв без мережі вмикає точку
+**SVITLO-LOCAL** (пароль = пароль адміністратора), ПК або телефон підключається до неї, адреса `192.168.4.1`.
+
+Вписати ключ команд — у браузері: `http://<адреса>/settings` → **«Ключ команд»** → «Зберегти й перезавантажити».
+Або командою (лише на 0.7.0: там поля, яких нема в запиті, не змінюються; пароль — з `firmware/secrets.ini`):
+
+```
+curl.exe -u admin:<пароль> --data-urlencode "ckey=<ключ команд>" http://<адреса>/settings
+```
+
+Перевірити: `http://<адреса>/` → **«Прошивка 0.7.0»** і **«Підпис прошивки: увімкнено»**
+(без нього `public.key` не потрапив у збірку — повернутись до п. 1).
 
 ## 3. VPS (потрібен лише інтернет)
 
