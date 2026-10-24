@@ -42,8 +42,3 @@ void configErase();
 // Boot counter: +1 on every start, survives power loss.
 uint32_t bootCountIncrement();
 
-// "4 quick power cycles = factory reset".
-// Called at boot: returns how many quick boots in a row happened (this one included).
-uint8_t fastBootsIncrement();
-// Called once the board has run stably for a few seconds.
-void fastBootsClear();

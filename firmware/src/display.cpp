@@ -18,6 +18,7 @@ static uint8_t backlight = BACKLIGHT;  // 0 in monitoring mode
 static bool shownOn = true;            // what the LCD is set to now (display + backlight)
 
 String displayInfo = "LCD не знайдено";
+String displayNote;
 static uint8_t addr = 0;           // 0 = no LCD
 static bool busOk = true;          // false after a failed write -> look for the LCD again
 static String shown[2];            // what is on the screen now, to rewrite only changes
@@ -254,12 +255,16 @@ static String bootMessage() {
 }
 
 static void compose(String &l1, String &l2) {
+  if (displayNote.length()) return startup(l1, l2, displayNote);
   if (st.apActive && !st.cfg.hasNetworks()) return startup(l1, l2, F("AP SVITLO-LOCAL"));  // first setup
   String msg = bootMessage();
   if (msg.length()) return startup(l1, l2, msg);
+  // No known network for a while: the setup AP is on next to the clock. Say so in the forecast slot.
+  bool apHint = st.apActive && WiFi.status() != WL_CONNECTED;
   // With a forecast: 15 s cycle = 9 s big clock, 3 s room weather, 3 s forecast (4 times a minute).
   // Without one: 12 s cycle = 9 s clock, 3 s room weather (5 times a minute).
-  uint32_t cycle = fc.ok ? 15000 : 12000, pos = millis() % cycle;
+  uint32_t cycle = fc.ok || apHint ? 15000 : 12000, pos = millis() % cycle;
+  if (apHint && pos >= 12000) return startup(l1, l2, F("No WiFi: AP on"));
   if (env.ok && pos >= 9000 && pos < 12000) weather(l1, l2);
   else if (fc.ok && pos >= 12000) forecastScreen(l1, l2);
   else bigClock(l1, l2);

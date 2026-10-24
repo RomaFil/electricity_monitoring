@@ -3,7 +3,12 @@
 # Пір отримує одну адресу 10.0.0.X/32. Нічого назовні не відкривається:
 # порт WireGuard на VPS уже працює для інших пірів.
 set -euo pipefail
-PUB="$1"
+PUB="${1:-}"
+# WireGuard public key: 32 bytes in base64. Anything else (a newline, a stray directive) never reaches wg0.conf.
+if ! [[ "$PUB" =~ ^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$ ]]; then
+    echo "це не схоже на публічний ключ WireGuard (44 символи base64 з = в кінці)" >&2
+    exit 1
+fi
 CONF=/etc/wireguard/wg0.conf
 OUT=/home/admin1/svitlo-local/wg-pve-peer.txt
 

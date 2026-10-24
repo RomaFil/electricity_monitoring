@@ -64,7 +64,24 @@ static void sendPage(const String &body, int code = 200) {
 
 // Settings need the admin password once it is set. Before that (first setup) the page is open,
 // and the form refuses to save without a new password.
+// A browser keeps the Basic-auth password, so a page from another site could post a form here.
+// Browsers always send Origin (or at least Referer) with a form POST: it must be this board.
+// No header at all = not a browser (curl, ota_upload.py) -> allowed.
+static bool sameOrigin() {
+  String o = server.header("Origin");
+  if (!o.length()) o = server.header("Referer");
+  if (!o.length()) return true;
+  int s = o.indexOf("://");
+  String host = s < 0 ? "" : o.substring(s + 3);
+  int slash = host.indexOf('/');
+  if (slash >= 0) host = host.substring(0, slash);
+  if (host.length() && host.equalsIgnoreCase(server.hostHeader())) return true;
+  server.send(403, F("text/plain; charset=utf-8"), F("запит з іншого сайту відхилено"));
+  return false;
+}
+
 static bool authOk() {
+  if (server.method() == HTTP_POST && !sameOrigin()) return false;
   if (!st.cfg.adminPass.length()) return true;
   if (server.authenticate(ADMIN_USER, st.cfg.adminPass.c_str())) return true;
   server.requestAuthentication(BASIC_AUTH, "Svitlo-Local", F("Потрібен пароль адміністратора"));
@@ -304,6 +321,7 @@ void webBegin() {
     server.send(303, F("text/plain"), "");
   });
   server.onNotFound(handleNotFound);
+  server.collectHeaders(F("Origin"), F("Referer"));  // for sameOrigin(); Authorization is always kept
   // OTA only with a password; without it anyone in the network could flash the board.
   if (st.cfg.adminPass.length()) updater.setup(&server, "/update", ADMIN_USER, st.cfg.adminPass.c_str());
   server.begin();

@@ -5,7 +5,6 @@
 
 static const char *CONFIG_FILE = "/config.json";
 static const char *BOOTS_FILE = "/boot_count";
-static const char *FAST_FILE = "/fast_boots";
 static const int CONFIG_VERSION = 1;
 
 bool Config::hasNetworks() const {
@@ -116,12 +115,3 @@ uint32_t bootCountIncrement() {
   return n;
 }
 
-uint8_t fastBootsIncrement() {
-  uint32_t n = readNumber(FAST_FILE) + 1;
-  writeNumber(FAST_FILE, n);
-  return n > 255 ? 255 : n;
-}
-
-void fastBootsClear() {
-  writeNumber(FAST_FILE, 0);
-}

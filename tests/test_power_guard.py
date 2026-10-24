@@ -60,6 +60,7 @@ class Runner:
 
     def __init__(self, clock):
         self.clock, self.calls, self.rtcwake_rc, self.during_sleep = clock, [], 0, None
+        self.poweroff_rc = 0
 
     def __call__(self, args):
         self.calls.append(args)
@@ -69,6 +70,8 @@ class Runner:
             self.clock.t += int(args[-1])
             if self.during_sleep:
                 self.during_sleep()
+        if args[-1] == "poweroff":
+            return self.poweroff_rc
         return 0
 
 
@@ -191,6 +194,34 @@ class GuardTest(unittest.TestCase):
         self.assertEqual(self.server.types()[-1], "forced_poweroff")
         journal = Path(self.cfg["STATE_DIR"], "journal.jsonl").read_text()
         self.assertIn("forced_poweroff", journal)
+
+    def test_failed_poweroff_does_not_get_stuck(self):
+        self.run.poweroff_rc = 1
+        self.g.start()
+        self.sys.set(ac=False, battery=7)
+        self.g.step()
+        self.g.step()  # poweroff fails
+        self.assertEqual(self.g.state, ON_BATTERY)
+        self.g.step()  # no second attempt right away
+        self.assertEqual(self.server.types().count("forced_poweroff"), 1)
+        self.sys.set(ac=True)
+        self.g.step()
+        self.g.step()
+        self.assertEqual(self.g.state, NORMAL)
+        self.assertIn("ac_restored", self.server.types())
+
+    def test_outbox_is_bounded_and_sent_in_portions(self):
+        import power_guard
+        self.server.up = False
+        self.g.start()
+        for _ in range(power_guard.OUTBOX_MAX + 20):
+            self.g.emit("guard_start")
+        store = Store(self.cfg["STATE_DIR"])
+        self.assertEqual(len(store.outbox()), power_guard.OUTBOX_MAX)
+        self.server.up = True
+        self.g.flush()
+        self.assertEqual(len(self.server.events), power_guard.SEND_MAX)
+        self.assertEqual(len(store.outbox()), power_guard.OUTBOX_MAX - power_guard.SEND_MAX)
 
     def test_after_poweroff_manual_start_records_gap_and_restore(self):
         self.g.start()

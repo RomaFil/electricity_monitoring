@@ -7,5 +7,6 @@
 // Big HH:MM over both lines; every 12 s for 3 s: temperature, humidity, pressure.
 // Weather screen: dot bottom-right = Wi-Fi connected. Wi-Fi in words only for 5 s after power-on.
 extern String displayInfo;  // what was found, for the status page
+extern String displayNote;  // shown instead of everything else while not empty (factory reset countdown)
 void displayBegin();
 void displayLoop();

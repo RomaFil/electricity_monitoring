@@ -11,7 +11,9 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from typing import Any
+
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse
 
 from . import config, db, home, schedule, stats
@@ -59,39 +61,54 @@ def check_key(key: str | None, expected_sha256: str):
 
 # ---------- device API ----------
 
+def _num(v):
+    if v is None:
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        raise HTTPException(400, "not a number")
+
+
+# Plain "def" (not async): FastAPI runs these in a thread pool, so a slow SQLite write
+# (busy_timeout up to 30 s while the poller holds the lock) does not stop the whole web server.
 @app.post("/api/power")
-async def api_power(request: Request, x_device_key: str | None = Header(None), c=Depends(con)):
+def api_power(request: Request, body: Any = Body(None), x_device_key: str | None = Header(None), c=Depends(con)):
     """Reports from power-guard: {"sample": {...}, "events": [{id, ts, type, ...}]}.
     Returns ids of accepted events so power-guard can drop them from its outbox."""
     rate_limit(request)
     check_key(x_device_key, config.POWER_KEY_SHA256)
-    body = await request.json()
+    if not isinstance(body, dict) or not isinstance(body.get("events") or [], list):
+        raise HTTPException(400, "expected {sample, events}")
     acked = []
     for e in body.get("events") or []:
-        row = home.map_event(e)
-        if row is None:
+        if not isinstance(e, dict) or not isinstance(e.get("id"), str):
             continue
-        db.add_event(c, row)  # duplicates are ignored but still acknowledged
+        try:
+            row = home.map_event(e)
+        except (TypeError, ValueError):
+            row = None
+        if row is not None:
+            db.add_event(c, row)  # duplicates are ignored but still acknowledged
+        # unknown or broken events are acknowledged too: they can never be stored, and keeping
+        # them would grow the outbox on the laptop forever (its journal still has them)
         acked.append(e["id"])
     s = body.get("sample")
-    if s and s.get("ts") is not None:
+    if isinstance(s, dict) and s.get("ts") is not None:
         c.execute("INSERT OR REPLACE INTO power_samples(ts,ac,battery,status,current_now,state) VALUES(?,?,?,?,?,?)",
-                  (float(s["ts"]), int(bool(s.get("ac"))), s.get("battery"), s.get("status"),
-                   s.get("current_now"), s.get("state")))
+                  (_num(s["ts"]), int(bool(s.get("ac"))), _num(s.get("battery")), str(s.get("status") or "")[:40],
+                   _num(s.get("current_now")), str(s.get("state") or "")[:20]))
     return {"ok": True, "acked": acked, "server_time": time.time()}
 
 
 @app.post("/api/heartbeat")
-async def api_heartbeat(request: Request, x_device_key: str | None = Header(None), c=Depends(con)):
+def api_heartbeat(request: Request, detail: Any = Body(None), x_device_key: str | None = Header(None),
+                  c=Depends(con)):
     """Direct mode: ESP posts here (only when VILLAGE_SOURCE=direct)."""
     rate_limit(request)
     if config.VILLAGE_SOURCE != "direct":
         raise HTTPException(404, "direct mode is off")
     check_key(x_device_key, config.HEARTBEAT_KEY_SHA256)
-    try:
-        detail = await request.json()
-    except (ValueError, UnicodeDecodeError):
-        detail = {}
     if not isinstance(detail, dict):
         detail = {}
     c.execute("INSERT INTO inbox(ts, detail) VALUES(?,?)", (time.time(), json.dumps(detail)[:2000]))
@@ -107,13 +124,13 @@ def _last_event(c, source, types):
 
 
 @app.post("/api/esp/display")
-async def api_esp_display(request: Request, c=Depends(con)):
+def api_esp_display(request: Request, body: Any = Body(None), c=Depends(con)):
     """Dashboard button: monitoring mode on the ESP (display off) or back to normal.
     Goes through the Healthchecks check description; the ESP picks it up within ~2 minutes."""
     rate_limit(request)
     if not config.hc_configured():
         raise HTTPException(503, "Healthchecks is not configured")
-    on = bool((await request.json()).get("on"))
+    on = bool(body.get("on")) if isinstance(body, dict) else False
     now = int(time.time())
     import httpx
     from .healthchecks import HealthchecksRelay
@@ -146,8 +163,10 @@ def api_status(c=Depends(con)):
     sample = c.execute("SELECT * FROM power_samples ORDER BY ts DESC LIMIT 1").fetchone()
     ctrl = _last_event(c, "home", ("sleep_start", "sleep_end", "forced_poweroff", "guard_start"))
     h = home.status(dict(sample) if sample else None, ctrl, now, config.HOME_STALE_S, config.HOME_WAKE_INTERVAL_S)
+    lost = _last_event(c, "home", ("power_lost", "power_restored"))
+    if h.get("status") == "sleeping" and lost and lost["type"] == "power_lost":
+        h["since"] = lost["ts"]  # without light since then; the last sleep_start is only the latest 5-minute nap
     if h.get("status") in ("online", "on_battery"):
-        lost = _last_event(c, "home", ("power_lost", "power_restored"))
         h["since"] = lost["ts"] if lost else None
         # After a manual start, remind for a day that the server had been off.
         gap = _last_event(c, "home", ("gap_unknown",))

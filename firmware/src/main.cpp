@@ -9,6 +9,10 @@
 //   double blink every 2 s        - only the setup access point SVITLO-LOCAL is on
 //   blinking once a second        - Wi-Fi OK, but the last heartbeat failed
 //   short flash every 5 s         - everything works
+//
+// Factory reset = hold the FLASH button for 10 s while the board runs. It used to be
+// "4 quick power cycles", but a flickering grid (auto-reclosing after an accident) can do
+// exactly that, and the board would wipe its Wi-Fi settings in the village by itself.
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
 #include <ESP8266WiFiMulti.h>
@@ -33,13 +37,13 @@ static const char *TZ_KYIV = "EET-2EEST,M3.5.0/3,M10.5.0/4";
 static const int LED_PIN = 2;  // GPIO2, LED on the ESP-12 module, lit when LOW
 static const uint32_t AP_AFTER_MS = 60000;      // no Wi-Fi for this long -> turn the setup AP on
 static const uint32_t AP_OFF_AFTER_MS = 120000; // connected for this long and nobody on the AP -> AP off
-static const uint32_t STABLE_MS = 5000;         // after this the "quick power cycles" counter is cleared
+static const int FLASH_PIN = 0;                 // GPIO0 = FLASH button (pressing it at power-on = bootloader)
+static const uint32_t RESET_HOLD_MS = 10000;
 
 static ESP8266WiFiMulti multi;
 static uint32_t lastConnectedMs = 0;
 static uint32_t connectedSinceMs = 0;
 static bool wasConnected = false;
-static bool fastCleared = false;
 
 // ---------- helpers shared via state.h ----------
 
@@ -141,6 +145,31 @@ static void wifiLoop() {
   }
 }
 
+// FLASH held for RESET_HOLD_MS -> factory reset. The LCD counts down (if it is on).
+static void resetButtonLoop() {
+  static uint32_t downMs = 0;
+  if (digitalRead(FLASH_PIN) != LOW) {
+    if (downMs) displayNote = "";
+    downMs = 0;
+    return;
+  }
+  uint32_t now = millis();
+  if (!downMs) downMs = now | 1;
+  uint32_t held = now - downMs;
+  if (held < 1000) return;  // a short press does nothing
+  if (held < RESET_HOLD_MS) {
+    displayNote = String(F("Reset in ")) + ((RESET_HOLD_MS - held) / 1000 + 1) + F(" s");
+    return;
+  }
+  Serial.println(F("FLASH held 10 s: factory reset"));
+  configErase();
+  for (int i = 0; i < 20; i++) {  // 2 s of fast blinking as a sign
+    digitalWrite(LED_PIN, i % 2 ? HIGH : LOW);
+    delay(100);
+  }
+  ESP.restart();
+}
+
 // ---------- main ----------
 
 void setup() {
@@ -149,24 +178,15 @@ void setup() {
   Serial.begin(115200);
   Serial.println(F("\n\nSvitlo-Local ESP " FW_VERSION));
 
+  pinMode(FLASH_PIN, INPUT_PULLUP);
   configBegin();
-  uint8_t fast = fastBootsIncrement();
-  if (fast >= 4) {
-    Serial.println(F("4 quick power cycles: factory reset"));
-    configErase();
-    fastBootsClear();
-    for (int i = 0; i < 20; i++) {  // 2 s of fast blinking as a sign
-      digitalWrite(LED_PIN, i % 2 ? HIGH : LOW);
-      delay(100);
-    }
-  }
   setenv("TZ", TZ_KYIV, 1);
   tzset();
   st.bootCount = bootCountIncrement();
   configLoad(st.cfg);  // before the sensor: it needs the temperature correction
   sensorsBegin();      // DS3231 gives the time right away, before Wi-Fi and NTP
   displayBegin();
-  Serial.printf("boot #%u, quick boots %u, networks: %s\n", st.bootCount, fast, st.cfg.hasNetworks() ? "yes" : "none");
+  Serial.printf("boot #%u, networks: %s\n", st.bootCount, st.cfg.hasNetworks() ? "yes" : "none");
 
   WiFi.persistent(false);  // our own config is the only source of truth, not the SDK flash area
   WiFi.setAutoReconnect(true);
@@ -185,10 +205,7 @@ void setup() {
 
 void loop() {
   uptimeSeconds();  // keep the 64-bit counter ticking even if nobody asks
-  if (!fastCleared && millis() > STABLE_MS) {
-    fastBootsClear();
-    fastCleared = true;
-  }
+  resetButtonLoop();
   wifiLoop();
   webLoop();
   if (WiFi.status() == WL_CONNECTED) MDNS.update();

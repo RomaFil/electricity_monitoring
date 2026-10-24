@@ -54,6 +54,24 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(periods[0]["source"], "home")
         self.assertEqual(len(self.c.get("/api/battery").json()), 2)
 
+    def test_bad_power_body_is_400_and_unknown_events_are_acked(self):
+        h = {"X-Device-Key": TOKEN}
+        self.assertEqual(self.c.post("/api/power", headers=h, json=[1, 2]).status_code, 400)
+        self.assertEqual(self.c.post("/api/power", headers=h, json={"sample": {"ts": "abc"}}).status_code, 400)
+        r = self.c.post("/api/power", headers=h, json={"events": [{"id": "x1", "ts": 1, "type": "new_kind"},
+                                                                   {"id": "x2", "ts": "bad", "type": "ac_lost"}]})
+        self.assertEqual(r.json()["acked"], ["x1", "x2"])
+        self.assertEqual(self.c.get("/api/events?technical=true").json(), [])
+
+    def test_sleeping_since_is_the_outage_start(self):
+        import time
+        now = time.time()
+        self.power(False, [{"id": "a", "ts": now - 2400, "type": "ac_lost"},
+                           {"id": "b", "ts": now - 120, "type": "sleep_start"}], ts=now - 125)
+        h = self.c.get("/api/status").json()["home"]
+        self.assertEqual(h["status"], "sleeping")
+        self.assertAlmostEqual(h["since"], now - 2400, delta=1)
+
     def test_dashboard_served(self):
         r = self.c.get("/")
         self.assertEqual(r.status_code, 200)

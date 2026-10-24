@@ -250,7 +250,9 @@ function renderStatus(s) {
   vk.push(`джерело: ${v.mode === "healthchecks" ? "Healthchecks" : esc(v.mode)}`);
   if (v.obs && v.obs.ok === false) vk.push(`<span class="err">Healthchecks недоступний: ${esc(v.obs.error)}</span>`);
   const dg = v.obs && v.obs.diag;
-  if (dg && dg.t != null) vk.push(`у селі: <b>${(+dg.t).toFixed(1)} °C</b>${dg.h != null ? `, <b>${Math.round(dg.h)} %</b>` : ""}`);
+  // diagnostics are the last ESP report: without fresh pings say how old the reading is
+  const dgOld = v.status !== "online" && v.obs && v.obs.diag_at ? `, <span style="color:var(--muted)">дані на ${t(v.last_ping || v.obs.diag_at)}</span>` : "";
+  if (dg && dg.t != null) vk.push(`у селі: <b>${(+dg.t).toFixed(1)} °C</b>${dg.h != null ? `, <b>${Math.round(dg.h)} %</b>` : ""}${dgOld}`);
   if (dg && dg.rssi != null) vk.push(`ESP: RSSI ${esc(dg.rssi)} dBm, прошивка ${esc(dg.fw || "?")}, перезапусків ${esc(dg.boot_count ?? "?")}`);
   $("v-kv").innerHTML = vk.join("<br>");
   renderEsp(v, now);
@@ -376,7 +378,8 @@ function timeTicks(from, to) {
 }
 
 // opts: {box, from, to, rows, series: [{key, cls, color, axis: "l"|"r", min, max, unit, name, digits, gap, noAxis}],
-//        bands, gap, extra(row, values)}; noAxis = shares the scale of another series, no own labels
+//        bands, gap, extra(row, values)}; noAxis = shares the scale of another series, no own labels;
+//        alsoKeys = more fields of the same rows to pass to extra (pressure comes with the room samples)
 function drawChart(opts) {
   const box = $(opts.box), svg = box.querySelector("svg"), tip = box.querySelector(".tip");
   const W = Math.max(300, svg.clientWidth), H = 260, L = 38, R = 40, T = 10, B = 24;
@@ -437,6 +440,7 @@ function drawChart(opts) {
       if (!near || Math.abs(near.ts - best.ts) > (sr.gap || opts.gap || 1800) / 2 + 60) return;
       const v = near[sr.key];
       vals[sr.key] = v;
+      for (const k of sr.alsoKeys || []) if (near[k] != null) vals[k] = near[k];
       dots += `<circle cx="${x(near.ts)}" cy="${ys[k](v)}" r="4" fill="${sr.color}"/>`;
       parts.push(`<span style="color:${sr.color}">●</span> ${sr.name}: <b>${(+v).toFixed(sr.digits ?? 0)}${sr.unit}</b>`);
     });
@@ -481,15 +485,17 @@ function renderEnv(r) {
   // one row list for the chart: room samples (t, h, p) and outdoor hours (out)
   const rows = r.rows.concat((r.outdoor || []).map(o => ({ts: o.ts, out: o.t}))).sort((a, b) => a.ts - b.ts);
   const ts = rows.flatMap(x => [x.t, x.out]).filter(v => v != null);
-  const tmin = ts.length ? Math.floor(Math.min(...ts) - 1) : 0, tmax = ts.length ? Math.ceil(Math.max(...ts) + 1) : 30;
+  const tmin = ts.length ? Math.floor(Math.min(...ts) - 1) : 0;
+  const tmax = ts.length ? tmin + 4 * Math.ceil((Math.max(...ts) + 1 - tmin) / 4) : 32;  // 4 grid steps: whole-degree labels
   drawChart({box: "env-box", from: r.from, to: r.to, rows,
-    series: [{key: "t", cls: "temp", color: "#ff9f43", axis: "l", min: tmin, max: tmax, unit: "°", name: "у кімнаті", digits: 1},
+    series: [{key: "t", cls: "temp", color: "#ff9f43", axis: "l", min: tmin, max: tmax, unit: "°", name: "у кімнаті", digits: 1,
+              alsoKeys: ["p"]},
              {key: "out", cls: "outt", color: "#c58cff", axis: "l", min: tmin, max: tmax, unit: "°", name: "надворі", digits: 1,
               gap: 3 * 3600, noAxis: true},
              {key: "h", cls: "hum", color: "var(--accent)", axis: "r", min: 0, max: 100, unit: "%", name: "вологість"}],
     extra: (r0, v) => [
       ...(v.t != null && v.out != null ? [`різниця: <b>${v.t - v.out >= 0 ? "+" : "−"}${Math.abs(v.t - v.out).toFixed(1)}°</b>`] : []),
-      ...(r0.p != null ? [`тиск: <b>${Math.round(r0.p)} гПа</b>`] : [])]});
+      ...(v.p != null ? [`тиск: <b>${Math.round(v.p)} гПа</b>`] : [])]});
 }
 // redraw when the chart width changes (window resize, the page shown after being hidden)
 new ResizeObserver(() => {
@@ -511,7 +517,7 @@ function renderEvents(list) {
     const d = e.detail || {};
     if (e.type === "power_restored" && d.precise_end === false && e.source === "village") extra += ", час появи приблизний";
     if (d.precision_s) extra += `, точність ±${dur(d.precision_s)}`;
-    if (d.drain_pct_per_h != null) extra += `, розряд у сні ${d.drain_pct_per_h}%/год`;
+    if (d.drain_pct_per_h != null) extra += `, розряд у сні ${esc(d.drain_pct_per_h)}%/год`;
     if (d.battery != null) extra += `, батарея ${Math.round(d.battery)}%`;
     if (e.type === "power_lost" && d.late) extra += " (виявлено із запізненням)";
     if (e.type === "gap_unknown" && d.reason) extra += ` · ${esc(d.reason)}`;

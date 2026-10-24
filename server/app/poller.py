@@ -2,6 +2,7 @@
 
 Run: python -m app.poller
 """
+import hashlib
 import json
 import logging
 import time
@@ -46,6 +47,12 @@ def process(con, st, pings):
     return st
 
 
+def hide_uuid(exc) -> str:
+    """httpx errors quote the request URL, and it contains the secret check UUID."""
+    text = str(exc)
+    return text.replace(config.HC_CHECK_UUID, "<uuid>") if config.HC_CHECK_UUID else text
+
+
 class Relay:
     """healthchecks-relay source."""
 
@@ -55,6 +62,17 @@ class Relay:
                                         config.HC_API_KEY, config.HC_CHECK_UUID)
         self.next_poll = 0.0
         self.next_diag = 0.0
+        self.check_new_uuid()
+
+    def check_new_uuid(self):
+        """hc_cursor is a ping number inside one check. A new check (new UUID) starts again from n=1,
+        so the old cursor would hide all its pings and the village would look dark forever."""
+        tag = hashlib.sha256(config.HC_CHECK_UUID.encode()).hexdigest()[:16]  # not the UUID itself
+        old = db.get_meta(self.con, "hc_check")
+        if old and old != tag:
+            log.warning("Healthchecks check UUID changed: starting its ping history from scratch")
+            db.set_meta(self.con, "hc_cursor", None)
+        db.set_meta(self.con, "hc_check", tag)
 
     def step(self, st, now):
         obs = db.get_meta(self.con, "village_obs", {})
@@ -71,14 +89,19 @@ class Relay:
                 if db.get_meta(self.con, "diag_soon"):  # a dashboard command was sent: confirm it sooner
                     db.set_meta(self.con, "diag_soon", False)
                     self.next_diag = 0
-                if now >= self.next_diag and cursor:
-                    self.next_diag = now + config.DIAG_BODY_EVERY_S
+            except Exception as exc:  # network, 4xx/5xx, bad json
+                log.warning("healthchecks poll failed: %s", hide_uuid(exc))
+                obs = {**obs, "ok": False, "complete": False, "error": hide_uuid(exc)[:200]}
+            cursor = db.get_meta(self.con, "hc_cursor")
+            if obs.get("ok") and now >= self.next_diag and cursor:
+                # diagnostics only: if this request fails, the pings above are still fine
+                self.next_diag = now + config.DIAG_BODY_EVERY_S
+                try:
                     obs["diag"] = self.client.body(cursor)
                     obs["diag_at"] = now
                     db.add_sample(self.con, st.last_ping_ts, obs["diag"])
-            except Exception as exc:  # network, 4xx/5xx, bad json
-                log.warning("healthchecks poll failed: %s", exc)
-                obs = {**obs, "ok": False, "complete": False, "error": str(exc)[:200]}
+                except Exception as exc:
+                    log.warning("healthchecks diagnostics failed: %s", hide_uuid(exc))
             db.set_meta(self.con, "village_obs", obs)
         fresh = obs.get("last_ok") and now - obs["last_ok"] < 2.5 * config.POLL_INTERVAL_S
         return st, bool(obs.get("ok") and obs.get("complete") and fresh)

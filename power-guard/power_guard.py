@@ -149,6 +149,13 @@ def run_cmd(args) -> int:
         return 127
 
 
+# The outbox is only what the server has not confirmed yet; the journal keeps everything.
+# With a wrong token nothing is ever confirmed, so keep it bounded and send it in portions.
+OUTBOX_MAX = 500
+SEND_MAX = 100
+POWEROFF_RETRY_S = 300
+
+
 class Guard:
     def __init__(self, cfg, sysfs, store, sender, run=run_cmd, clock=time.time, sleep=time.sleep):
         self.cfg, self.sysfs, self.store, self.sender = cfg, sysfs, store, sender
@@ -168,6 +175,7 @@ class Guard:
         self.restore_precision = None  # seconds of uncertainty for the next ac_restored
         self.next_report = 0.0
         self.next_sleep_try = 0.0
+        self.next_poweroff_try = 0.0
         self.backoff = 0.0
         self.woke_at = None
         self.last = {}
@@ -184,13 +192,13 @@ class Guard:
         e = {"id": uuid.uuid4().hex, "ts": detail.pop("ts", self.clock()), "type": type_,
              "ac": r.get("ac"), "battery": r.get("battery"), "status": r.get("status"), "detail": detail}
         self.store.journal(e)
-        self.store.save_outbox(self.store.outbox() + [e])
+        self.store.save_outbox((self.store.outbox() + [e])[-OUTBOX_MAX:])
         log.info("event %s %s", type_, detail)
         return e
 
     def flush(self) -> bool:
         """Send the latest sample and all unsent events. Returns True on success."""
-        out = self.store.outbox()
+        out = self.store.outbox()[:SEND_MAX]  # oldest first; the rest goes with the next reports
         r = self.last
         sample = {"ts": self.clock(), "state": self.state, **{k: r.get(k) for k in ("ac", "battery", "status", "current_now")}}
         try:
@@ -247,7 +255,7 @@ class Guard:
         elif self.state == ON_BATTERY:
             if r["ac"]:
                 self._restored(now)
-            elif r["battery"] is not None and r["battery"] <= self.critical:
+            elif r["battery"] is not None and r["battery"] <= self.critical and now >= self.next_poweroff_try:
                 self._poweroff()
                 return self.report_interval
             elif not self.keep_awake and now >= self.next_sleep_try and (
@@ -259,6 +267,9 @@ class Guard:
                 self._sleep_cycle()
                 self._save()
                 return 0  # check again right after waking
+        elif self.state == OFF and r["ac"]:
+            # the poweroff command was accepted but the laptop is still running and the charger is back
+            self._restored(now)
 
         self._save()
         if now >= self.next_report:
@@ -317,7 +328,14 @@ class Guard:
         while not self.flush() and self.clock() < deadline:
             self.sleep(2)
         self.run(["sync"])
-        self.run(self.cfg["POWEROFF_CMD"].split())
+        rc = self.run(self.cfg["POWEROFF_CMD"].split())
+        if rc != 0:
+            # Still running: go on as "on battery" (sleep cycles keep saving power) and retry later,
+            # otherwise the state would stay OFF and the charger coming back would go unnoticed.
+            log.error("poweroff command failed (rc=%s), retry in %d s", rc, POWEROFF_RETRY_S)
+            self.state = ON_BATTERY
+            self.next_poweroff_try = self.clock() + POWEROFF_RETRY_S
+            self._save()
 
 
 def main():
