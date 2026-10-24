@@ -6,12 +6,15 @@ Proxmox laptop; dashboard in `server/app/static/index.html`. Overview and setup:
 
 Talk to Roman in Ukrainian. Code, comments and commit messages in English.
 
-## Current task (October 2026)
+## State (24.10.2026)
 
-Roman is in the village next to the board and goes to Kyiv afterwards. Before he leaves, the board must
-get firmware 0.7.0 with remote control (signed commands + signed OTA from GitHub Releases), because
-0.6.1 cannot be updated from far away. **Follow `docs/remote-setup.md` step by step** and report after
-each part. Its section 4 (tests) needs light in the village; parts 1–3 do not.
+Remote control is set up and tested on the board in the village (`docs/remote-setup.md`, parts 1–4 done):
+signing keys made on Roman's PC (`firmware/private.key`, git-ignored; `firmware/public.key` committed),
+the command key is in the VPS `.env` (`ESP_CMD_KEY`), on the board and in `firmware/secrets.ini` (`[cmd] key`).
+Sensor re-read, reboot and a remote update 0.7.0 -> 0.7.1 from GitHub Releases all passed, without a false
+outage. A new firmware: bump `FW_VERSION`, build on the PC with `private.key`, release `v<version>` with
+`firmware.bin.signed` attached under exactly that name, then the dashboard button (the server re-reads the
+release list every 10 minutes).
 
 ## Hard rules
 
