@@ -134,9 +134,24 @@ label.chk { font-size: 13px; color: var(--muted); display: flex; gap: 6px; align
 
   <section class="card">
     <div class="row-head">
-      <h2>Без світла: факт і графік ДТЕК <span id="w-range" style="color:var(--muted);font-weight:400"></span></h2>
-      <div class="nav"><button id="prev" title="Попередній тиждень">◀</button><button id="next" title="Наступний тиждень">▶</button></div>
+      <h2>Графік відключень <span id="w-range" style="color:var(--muted);font-weight:400"></span></h2>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <div class="seg" id="src"><button data-s="home" class="on">Дім</button><button data-s="village">Село</button></div>
+        <div class="nav"><button id="prev" title="Попередній тиждень">◀</button><button id="next" title="Наступний тиждень">▶</button></div>
+      </div>
     </div>
+    <div class="week" id="week"></div>
+    <div class="legend">
+      <span><i class="light"></i>Світло було</span>
+      <span><i class="outage"></i>Світла не було</span>
+      <span id="lg-nolink"><i class="nolink"></i>Світло було, не було зв'язку</span>
+      <span><i class="unknown"></i>Немає даних</span>
+      <span class="lg-plan"><i class="plan-on"></i>Світло мало бути (за графіком)</span>
+      <span class="lg-plan"><i class="plan-off"></i>Світла не мало бути</span>
+      <span class="lg-plan" id="lg-maybe"><i class="plan-maybe"></i>Можливе відключення</span>
+    </div>
+    <div id="sched-info" class="kv" style="margin-bottom:4px"></div>
+    <h2 style="margin:18px 0 8px">Без світла: факт і графік ДТЕК</h2>
     <div class="tbl-wrap"><table class="out" id="out"></table></div>
     <p class="kv" id="out-note"></p>
   </section>
@@ -169,7 +184,7 @@ const fmtH = new Intl.DateTimeFormat("uk-UA", {timeZone: TZ, hour: "2-digit", mi
 const t = s => s ? fmtT.format(new Date(s * 1000)) : "—";
 const $ = id => document.getElementById(id);
 const WD = ["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ", "НД"];
-let week = 0, envHours = 24;
+let source = "home", week = 0, envHours = 24;
 
 function dur(sec) {
   if (sec == null) return "—";
@@ -233,6 +248,43 @@ const hm = sec => {  // 5700 -> "1:35"
   const m = Math.round(sec / 60);
   return `${Math.floor(m / 60)}:${String(m % 60).padStart(2, "0")}`;
 };
+
+// Bars per day for the place chosen with the Дім/Село switch: fact on top, DTEK schedule below.
+function renderBars(r) {
+  const days = r.days;
+  $("week").innerHTML = days.map(d => {
+    const span = d.to - d.from;
+    const bar = d.segments.map(x => {
+      const title = `${fmtH.format(new Date(x.start * 1000))} – ${fmtH.format(new Date(x.end * 1000))} (${dur(x.end - x.start)})`;
+      return `<span class="${x.kind}" title="${title}" style="left:${(x.start - d.from) / span * 100}%;width:${(x.end - x.start) / span * 100}%"></span>`;
+    }).join("");
+    const plan = d.planned.map(x => {
+      const title = `за графіком: ${{light: "світло є", off: "світла немає", maybe: "можливе відключення"}[x.kind]}, ` +
+        `${fmtH.format(new Date(x.start * 1000))} – ${fmtH.format(new Date(x.end * 1000))}`;
+      return `<span class="${x.kind}" title="${title}" style="left:${(x.start - d.from) / span * 100}%;width:${(x.end - x.start) / span * 100}%"></span>`;
+    }).join("");
+    const hasData = d.light_s + d.outage_s > 0;
+    let tot = hasData ? `<span class="l">${dur(d.light_s)}</span><br><span class="o">${d.outage_s ? "без світла " + dur(d.outage_s) : "без відключень"}</span>`
+                      : `<span style="color:var(--muted)">немає даних</span>`;
+    if (d.planned_off_s != null) tot += `<br><span class="p">${d.planned_off_s ? "за графіком без світла<br>" + dur(d.planned_off_s) : "за графіком без відключень"}</span>`;
+    return `<div class="wd">${WD[d.weekday]} <small>(${ddmm(d.date)})</small></div>
+            <div class="bar-wrap"><div class="bar">${bar}</div>${plan ? `<div class="plan">${plan}</div>` : ""}${TICKS}</div>
+            <div class="tot">${tot}</div>`;
+  }).join("");
+  $("lg-nolink").style.display = source === "village" ? "" : "none";
+  const si = r.schedule_info || {};
+  document.querySelectorAll(".lg-plan").forEach(e => e.style.display = si.group ? "" : "none");
+  // "possible outage" appears in DTEK data only sometimes; show its legend only when this week has it
+  if (!days.some(d => d.planned.some(x => x.kind === "maybe"))) $("lg-maybe").style.display = "none";
+  let info = "";
+  if (si.group) {
+    info = `Офіційний графік ДТЕК: ${si.region === "kyiv" ? "м. Київ" : "Київська обл."}, черга <b>${esc(si.group)}</b>`;
+    const st = si.status || {};
+    if (st.update) info += `, оновлено ${esc(st.update)}`;
+    if (st.ok === false) info += ` · <span class="err">не вдалося завантажити: ${esc(st.error || "")}</span>`;
+  }
+  $("sched-info").innerHTML = info;
+}
 
 // One row per day, for both places: hours without light in fact and by the DTEK schedule.
 function renderTable(home, village) {
@@ -427,11 +479,17 @@ async function refresh() {
     const [s, wh, wv, b, e, env] = await Promise.all([get("api/status"), get(`api/daily?source=home&week=${week}`),
       get(`api/daily?source=village&week=${week}`), get("api/battery?hours=24"),
       get("api/events?limit=100&technical=" + $("tech").checked), get("api/sensors?hours=" + envHours)]);
-    renderStatus(s); renderTable(wh, wv); renderBattery(b, now - 86400, now); renderEvents(e); renderEnv(env);
+    renderStatus(s); renderBars(source === "home" ? wh : wv); renderTable(wh, wv); renderBattery(b, now - 86400, now); renderEvents(e); renderEnv(env);
   } catch (err) {
     $("updated").innerHTML = `<span class="err">немає зв'язку з сервером</span>`;
   }
 }
+$("src").addEventListener("click", ev => {
+  const btn = ev.target.closest("button"); if (!btn) return;
+  source = btn.dataset.s;
+  [...$("src").children].forEach(x => x.classList.toggle("on", x === btn));
+  refresh();
+});
 $("env-range").addEventListener("click", ev => {
   const btn = ev.target.closest("button"); if (!btn) return;
   envHours = +btn.dataset.h;
