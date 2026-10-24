@@ -167,6 +167,8 @@ ESP у селі ─────────────────────�
 
 ### Один раз: налаштування
 
+Покроковий чекліст з перевіркою: [docs/remote-setup.md](docs/remote-setup.md).
+
 1. На своєму ПК, у `firmware/`: `python make_keys.py` (потрібен `pip install cryptography` або openssl з Git for Windows). З'являться `private.key` (у git не потрапляє, зробіть зашифровану копію) і `public.key` (закомітити).
 2. Ключ команд: `python -c "import secrets;print(secrets.token_urlsafe(32))"`. Вписати в `.env` на VPS як `ESP_CMD_KEY=...`, перезапустити `docker compose up -d`.
 3. Зібрати й прошити 0.7.0 **по USB** (`python -m platformio run -t upload --upload-port COM16`): перша прошивка з перевіркою підпису, кабель — найнадійніше.
