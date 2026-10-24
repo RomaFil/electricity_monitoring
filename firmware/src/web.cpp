@@ -119,6 +119,7 @@ static void handleStatus() {
   b += row(F("Датчик"), sensor);
   b += row(F("Шина I²C"), i2cScan());
   b += row(F("Дисплей"), esc(displayInfo));
+  b += row(F("Команди з дашборда"), remoteStatus.length() ? esc(remoteStatus) : String(F("ще не перевірялись")));
   b += row(F("Режим"), st.cfg.displayOn ? String(F("звичайний (дисплей увімкнено)"))
                                          : String(F("<span class=ok>моніторинг: дисплей вимкнено</span>")));
   String f;
@@ -238,7 +239,9 @@ static void handleSettingsPost() {
   c.fingerprint.trim();
   String admin = server.arg("admin");
   if (server.hasArg("toff")) c.tempOffset = constrain(server.arg("toff").toFloat(), -10.0f, 10.0f);
-  if (server.arg("rokey").length()) c.hcRoKey = server.arg("rokey");
+  String rokey = server.arg("rokey");
+  rokey.trim();  // a space copied together with the key gives HTTP 401
+  if (rokey.length()) c.hcRoKey = rokey;
   if (server.hasArg("fcn")) {
     c.fcName = server.arg("fcn");
     c.fcName.trim();
