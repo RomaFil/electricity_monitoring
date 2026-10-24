@@ -9,6 +9,7 @@
 #include "display.h"
 #include "forecast.h"
 #include "heartbeat.h"
+#include "remote.h"
 #include "sensors.h"
 #include "state.h"
 
@@ -118,6 +119,8 @@ static void handleStatus() {
   b += row(F("Датчик"), sensor);
   b += row(F("Шина I²C"), i2cScan());
   b += row(F("Дисплей"), esc(displayInfo));
+  b += row(F("Режим"), st.cfg.displayOn ? String(F("звичайний (дисплей увімкнено)"))
+                                         : String(F("<span class=ok>моніторинг: дисплей вимкнено</span>")));
   String f;
   if (fc.ok) {
     f = esc(st.cfg.fcName) + F(": зараз ") + String(fc.nowT, 1) + F(" °C, завтра ") + String(fc.tmrMin, 0) + "…" +
@@ -132,6 +135,9 @@ static void handleStatus() {
   b += row(F("Прошивка"), F(FW_VERSION));
   b += F("</table></div><a class=btn href=/settings>Налаштування</a> ");
   if (st.cfg.adminPass.length()) b += F("<a class=btn href=/update>Оновити прошивку</a>");
+  b += F("<form method=post action=/display style=\"display:inline\"><input type=hidden name=on value=");
+  b += st.cfg.displayOn ? F("0><button>Режим моніторингу (вимкнути дисплей)") : F("1><button>Увімкнути дисплей");
+  b += F("</button></form>");
   sendPage(b);
 }
 
@@ -189,7 +195,12 @@ static void handleSettingsGet() {
   b += F("><label>Поправка вологості, % (додатна — якщо датчик показує менше, ніж є)</label>"
          "<input type=number step=1 min=-30 max=30 name=hoff value=");
   b += String(c.humOffset, 0);
-  b += F("></div><div class=card><h2>Прогноз погоди (Open-Meteo)</h2>"
+  b += F("></div><div class=card><h2>Керування з дашборда</h2>"
+         "<p class=muted>Read-only API-ключ Healthchecks (Settings → API Access → Create read-only key). "
+         "З ним плата раз на 2 хв читає команду «режим моніторингу» з дашборда. Нічого змінити цим ключем не можна.</p>"
+         "<label>Read-only ключ</label><input type=password name=rokey placeholder=\"");
+  b += st.cfg.hcRoKey.length() ? F("без змін") : F("не задано");
+  b += F("\"></div><div class=card><h2>Прогноз погоди (Open-Meteo)</h2>"
          "<label>Назва латиницею (видно на екрані)</label><input name=fcn maxlength=9 value=\"");
   b += esc(c.fcName);
   b += F("\"><label>Широта</label><input type=number step=0.0001 name=fclat value=");
@@ -227,6 +238,7 @@ static void handleSettingsPost() {
   c.fingerprint.trim();
   String admin = server.arg("admin");
   if (server.hasArg("toff")) c.tempOffset = constrain(server.arg("toff").toFloat(), -10.0f, 10.0f);
+  if (server.arg("rokey").length()) c.hcRoKey = server.arg("rokey");
   if (server.hasArg("fcn")) {
     c.fcName = server.arg("fcn");
     c.fcName.trim();
@@ -282,6 +294,12 @@ void webBegin() {
   server.on("/settings", HTTP_GET, handleSettingsGet);
   server.on("/settings", HTTP_POST, handleSettingsPost);
   server.on("/reset", HTTP_POST, handleReset);
+  server.on("/display", HTTP_POST, [] {
+    if (!authOk()) return;
+    setDisplayOn(server.arg("on") == "1");
+    server.sendHeader(F("Location"), F("/"), true);
+    server.send(303, F("text/plain"), "");
+  });
   server.onNotFound(handleNotFound);
   // OTA only with a password; without it anyone in the network could flash the board.
   if (st.cfg.adminPass.length()) updater.setup(&server, "/update", ADMIN_USER, st.cfg.adminPass.c_str());

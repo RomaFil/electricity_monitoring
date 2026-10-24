@@ -14,6 +14,8 @@ static const uint8_t MAIN_SDA = 4, MAIN_SCL = 5;    // D2, D1 (BME280, DS3231)
 
 // PCF8574 pins -> HD44780: P0=RS, P1=RW, P2=EN, P3=backlight, P4..P7=D4..D7 (the usual backpack wiring)
 static const uint8_t RS = 0x01, EN = 0x04, BACKLIGHT = 0x08;
+static uint8_t backlight = BACKLIGHT;  // 0 in monitoring mode
+static bool shownOn = true;            // what the LCD is set to now (display + backlight)
 
 String displayInfo = "LCD не знайдено";
 static uint8_t addr = 0;           // 0 = no LCD
@@ -27,7 +29,7 @@ static void mainBus() { Wire.begin(MAIN_SDA, MAIN_SCL); }
 
 static void expanderWrite(uint8_t v) {
   Wire.beginTransmission(addr);
-  Wire.write(v | BACKLIGHT);
+  Wire.write(v | backlight);
   if (Wire.endTransmission() != 0) busOk = false;
 }
 
@@ -63,6 +65,8 @@ static bool findLcd() {
 static void lcdInit() {
   // HD44780 "initialisation by instruction" for 4-bit mode (datasheet, figure 24)
   busOk = true;
+  backlight = BACKLIGHT;
+  shownOn = true;
   expanderWrite(0);
   delay(50);
   nibble(0x30);
@@ -299,6 +303,16 @@ void displayLoop() {
     mainBus();
     if (!addr) return;
   }
+
+  if (st.cfg.displayOn != shownOn) {  // monitoring mode switched (dashboard, ESP page)
+    lcdBus();
+    shownOn = st.cfg.displayOn;
+    backlight = shownOn ? BACKLIGHT : 0;
+    command(shownOn ? 0x0C : 0x08);  // display on / off; with the backlight bit this also lights or darkens it
+    shown[0] = shown[1] = "";
+    mainBus();
+  }
+  if (!shownOn) return;  // monitoring mode: nothing to draw
 
   String l1, l2;
   compose(l1, l2);

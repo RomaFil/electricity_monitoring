@@ -67,9 +67,13 @@ class Relay:
                 st = process(self.con, st, pings)
                 db.set_meta(self.con, "hc_cursor", cursor)
                 obs = {"ok": True, "complete": complete, "last_ok": now, "error": None}
+                if db.get_meta(self.con, "diag_soon"):  # a dashboard command was sent: confirm it sooner
+                    db.set_meta(self.con, "diag_soon", False)
+                    self.next_diag = 0
                 if now >= self.next_diag and cursor:
                     self.next_diag = now + config.DIAG_BODY_EVERY_S
                     obs["diag"] = self.client.body(cursor)
+                    obs["diag_at"] = now
                     db.add_sample(self.con, st.last_ping_ts, obs["diag"])
             except Exception as exc:  # network, 4xx/5xx, bad json
                 log.warning("healthchecks poll failed: %s", exc)

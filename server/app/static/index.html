@@ -104,6 +104,10 @@ td.t { white-space: nowrap; color: var(--muted); font-size: 13px; width: 1%; }
 td.s { white-space: nowrap; width: 1%; }
 label.chk { font-size: 13px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
 .err { color: var(--off); }
+.btn2 { margin-top: 8px; border: 1px solid var(--line); background: var(--card2); color: var(--text); border-radius: 8px;
+  padding: 7px 12px; font: inherit; font-size: 14px; cursor: pointer; }
+.btn2:disabled { opacity: .5; cursor: default; }
+#v-esp a { color: var(--accent); }
 
 @media (max-width: 600px) {
   /* dense: the day label and totals share a row, the bar goes full width below */
@@ -124,6 +128,7 @@ label.chk { font-size: 13px; color: var(--muted); display: flex; gap: 6px; align
       <h2>Село</h2>
       <div class="state"><span class="dot" id="v-dot"></span><span id="v-text">—</span></div>
       <div class="kv" id="v-kv"></div>
+      <div class="kv" id="v-esp" style="margin-top:8px"></div>
     </section>
     <section class="card">
       <h2>Дім</h2>
@@ -207,6 +212,32 @@ const H_TEXT = {online: "Світло є", on_battery: "Нема світла, �
   sleeping: "Нема світла, сервер спить (прокидається кожні 5 хв)", no_data: "Немає даних",
   off: "Сервер вимкнений", never: "Ще не було даних"};
 
+// ESP block in the village card: link to its own page and the monitoring-mode button
+function renderEsp(v, now) {
+  const dg = (v.obs && v.obs.diag) || {}, cmd = v.esp_cmd;
+  const parts = [];
+  if (dg.ip) parts.push(`Сторінка ESP: <a href="http://${esc(dg.ip)}/" target="_blank">${esc(dg.ip)}</a> або ` +
+    `<a href="http://svitlo-local.local/" target="_blank">svitlo-local.local</a> <span class="u">(відкривається лише з тієї ж Wi-Fi мережі, що й плата)</span>`);
+  const disp = dg.disp == null ? null : +dg.disp;
+  if (disp != null) parts.push(`Дисплей: <b>${disp ? "увімкнено" : "вимкнено — режим моніторингу"}</b>`);
+  if (cmd && cmd.ok === false) parts.push(`<span class="err">Команду не надіслано: ${esc(cmd.error || "")}</span>`);
+  else if (cmd && disp !== (cmd.on ? 1 : 0) && now - cmd.at < 900)
+    parts.push(`Команду надіслано о ${fmtH.format(new Date(cmd.at * 1000))}, плата застосує протягом ~2 хв`);
+  const wantOn = disp === 0;
+  parts.push(`<button class="btn2" id="esp-mode">${wantOn ? "☀ Увімкнути дисплей" : "🌙 Режим моніторингу (вимкнути дисплей)"}</button>`);
+  if (disp == null) parts.push(`<span class="u">Потрібна прошивка 0.5.0 і read-only ключ Healthchecks у налаштуваннях плати.</span>`);
+  $("v-esp").innerHTML = parts.join("<br>");
+  $("esp-mode").onclick = async ev => {
+    ev.target.disabled = true;
+    try {
+      const r = await fetch("api/esp/display", {method: "POST", headers: {"Content-Type": "application/json"},
+                                                body: JSON.stringify({on: wantOn})});
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.status);
+    } catch (e) { alert("Не вдалося надіслати команду: " + e.message); }
+    refresh();
+  };
+}
+
 function renderStatus(s) {
   const v = s.village, h = s.home, now = s.now;
   $("v-dot").className = "dot " + v.status;
@@ -220,6 +251,7 @@ function renderStatus(s) {
   if (dg && dg.t != null) vk.push(`у селі: <b>${(+dg.t).toFixed(1)} °C</b>${dg.h != null ? `, <b>${Math.round(dg.h)} %</b>` : ""}`);
   if (dg && dg.rssi != null) vk.push(`ESP: RSSI ${esc(dg.rssi)} dBm, прошивка ${esc(dg.fw || "?")}, перезапусків ${esc(dg.boot_count ?? "?")}`);
   $("v-kv").innerHTML = vk.join("<br>");
+  renderEsp(v, now);
 
   $("h-dot").className = "dot " + h.status;
   $("h-text").textContent = H_TEXT[h.status] || h.status;

@@ -53,6 +53,9 @@ bool configLoad(Config &c) {
   c.fcName = doc["fcn"] | "Babyntsi";
   c.fcLat = doc["fclat"] | 50.6331f;
   c.fcLon = doc["fclon"] | 30.0239f;
+  c.displayOn = doc["disp"] | true;
+  c.hcRoKey = doc["rokey"] | "";
+  c.remoteMode = doc["rmode"] | "";
   if (c.intervalS < 30 || c.intervalS > 3600) c.intervalS = 60;
   return true;
 }
@@ -77,6 +80,9 @@ bool configSave(const Config &c) {
   doc["fcn"] = c.fcName;
   doc["fclat"] = c.fcLat;
   doc["fclon"] = c.fcLon;
+  doc["disp"] = c.displayOn;
+  doc["rokey"] = c.hcRoKey;
+  doc["rmode"] = c.remoteMode;
   // Write to a temp file first, then rename: a power cut mid-write keeps the old config.
   File f = LittleFS.open("/config.tmp", "w");
   if (!f) return false;

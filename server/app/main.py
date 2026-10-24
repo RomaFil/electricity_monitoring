@@ -106,6 +106,32 @@ def _last_event(c, source, types):
     return db.row_to_event(r) if r else None
 
 
+@app.post("/api/esp/display")
+async def api_esp_display(request: Request, c=Depends(con)):
+    """Dashboard button: monitoring mode on the ESP (display off) or back to normal.
+    Goes through the Healthchecks check description; the ESP picks it up within ~2 minutes."""
+    rate_limit(request)
+    if not config.hc_configured():
+        raise HTTPException(503, "Healthchecks is not configured")
+    on = bool((await request.json()).get("on"))
+    now = int(time.time())
+    import httpx
+    from .healthchecks import HealthchecksRelay
+    cmd = {"on": on, "at": now}
+    try:
+        with httpx.Client() as http:
+            HealthchecksRelay(http, config.HC_API_BASE, config.HC_API_KEY, config.HC_CHECK_UUID).set_mode(
+                "normal" if on else "monitor", now)
+        cmd["ok"] = True
+    except Exception as exc:
+        cmd.update(ok=False, error=str(exc)[:200].replace(config.HC_CHECK_UUID, "<uuid>"))
+    db.set_meta(c, "esp_cmd", cmd)
+    db.set_meta(c, "diag_soon", True)
+    if not cmd["ok"]:
+        raise HTTPException(502, cmd["error"])
+    return cmd
+
+
 @app.get("/api/status")
 def api_status(c=Depends(con)):
     now = time.time()
@@ -115,6 +141,7 @@ def api_status(c=Depends(con)):
         "mode": db.get_meta(c, "village_mode", config.VILLAGE_SOURCE),
         "obs": db.get_meta(c, "village_obs", {}),
         "threshold_s": config.VILLAGE_THRESHOLD_S,
+        "esp_cmd": db.get_meta(c, "esp_cmd"),
     }
     sample = c.execute("SELECT * FROM power_samples ORDER BY ts DESC LIMIT 1").fetchone()
     ctrl = _last_event(c, "home", ("sleep_start", "sleep_end", "forced_poweroff", "guard_start"))

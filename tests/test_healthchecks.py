@@ -1,7 +1,7 @@
 import unittest
 
 from _paths import *  # noqa: F401,F403
-from app.healthchecks import HealthchecksRelay, needs_body, new_success_pings, parse_body
+from app.healthchecks import HealthchecksRelay, needs_body, new_success_pings, parse_body, with_mode
 
 
 def ping(n, minute, type_="success"):
@@ -43,6 +43,13 @@ class PingListTest(unittest.TestCase):
         self.assertEqual(parse_body('{"uptime_s": 12}'), {"uptime_s": 12})
         self.assertEqual(parse_body("uptime_s=12&rssi=-70"), {"uptime_s": "12", "rssi": "-70"})
         self.assertEqual(parse_body(""), {})
+
+
+class ModeTest(unittest.TestCase):
+    def test_with_mode_keeps_other_lines_and_replaces_old_command(self):
+        d = with_mode("ESP in the village\nsvitlo-mode=normal#1", "monitor", 5)
+        self.assertEqual(d, "ESP in the village\nsvitlo-mode=monitor#5")
+        self.assertEqual(with_mode("", "normal", 7), "svitlo-mode=normal#7")
 
 
 class FakeResp:

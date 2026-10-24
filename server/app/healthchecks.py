@@ -58,6 +58,13 @@ def new_success_pings(raw_pings: list, cursor: int | None):
     return out, fresh[-1]["n"]
 
 
+def with_mode(desc: str, mode: str, ts: int) -> str:
+    """Put "svitlo-mode=<mode>#<ts>" into a check description, keeping the rest of it.
+    The ESP reads this line with its read-only key (firmware remote.cpp)."""
+    kept = [line for line in (desc or "").splitlines() if not line.strip().startswith("svitlo-mode=")]
+    return "\n".join(kept + [f"svitlo-mode={mode}#{ts}"]).strip()
+
+
 def needs_body(pings: list, last_ping_ts: float | None, threshold: float) -> list:
     """Bodies cost one request each, so fetch only where uptime matters:
     a ping that follows a gap longer than the threshold."""
@@ -86,6 +93,12 @@ class HealthchecksRelay:
 
     def pings(self) -> list:
         return self._get("/pings/").json().get("pings", [])
+
+    def set_mode(self, mode: str, ts: int):
+        """Write the dashboard command into the check description (full API key)."""
+        desc = with_mode(self.check().get("desc", ""), mode, ts)
+        r = self.http.post(self.base, headers=self.headers, json={"desc": desc}, timeout=15)
+        r.raise_for_status()
 
     def body(self, n: int) -> dict:
         r = self.http.get(f"{self.base}/pings/{n}/body", headers=self.headers, timeout=15)

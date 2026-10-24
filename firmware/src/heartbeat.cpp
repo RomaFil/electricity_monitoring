@@ -44,6 +44,10 @@ static String body() {
       b += String(env.p, 1);
     }
   }
+  b += F(",\"ip\":\"");  // for the link on the dashboard (works only from the same Wi-Fi)
+  b += WiFi.localIP().toString();
+  b += F("\",\"disp\":");
+  b += st.cfg.displayOn ? 1 : 0;
   b += F(",\"fw\":\"" FW_VERSION "\"}");
   return b;
 }
