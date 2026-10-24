@@ -4,7 +4,10 @@
 #   [ota]
 #   host = svitlo-local.local      ; or the board's IP
 #   password = ...
+# A firmware built with public.key accepts only signed images, so then firmware.bin.signed is sent
+# (signing.py makes it after every build when private.key is on this PC).
 import base64
+import os
 import uuid
 import urllib.request
 
@@ -19,6 +22,12 @@ def ota_upload(source, target, env):
     host = cfg.get("ota", "host") if cfg.has_option("ota", "host") else "svitlo-local.local"
     password = cfg.get("ota", "password")
     path = str(source[0])
+    if os.path.exists(os.path.join(env.subst("$PROJECT_DIR"), "public.key")):
+        path += ".signed"
+        if not os.path.exists(path):
+            print("firmware.bin.signed is missing (no private.key on this PC?): a board with signing "
+                  "turned on would reject an unsigned image. Upload over USB instead.")
+            return 1
     with open(path, "rb") as f:
         image = f.read()
 

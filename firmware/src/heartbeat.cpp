@@ -6,6 +6,7 @@
 #include <memory>
 
 #include "certs.h"
+#include "ota.h"
 #include "sensors.h"
 #include "state.h"
 
@@ -17,6 +18,15 @@ static BearSSL::X509List *trustAnchor() {
   static BearSSL::X509List *ta = nullptr;
   if (!ta) ta = new BearSSL::X509List(ROOT_CA_SECTIGO_E46);
   return ta;
+}
+
+static String jsonEsc(const String &s) {
+  String o;
+  for (char ch : s) {
+    if (ch == '"' || ch == '\\') o += '\\';
+    if ((uint8_t)ch >= 0x20) o += ch;
+  }
+  return o;
 }
 
 static String body() {
@@ -50,6 +60,18 @@ static String body() {
   b += WiFi.localIP().toString();
   b += F("\",\"disp\":");
   b += st.cfg.displayOn ? 1 : 0;
+  b += F(",\"sig\":");  // 1 = accepts only signed firmware, remote updates possible
+  b += otaSigned() ? 1 : 0;
+  if (st.cfg.cmdResult.length()) {
+    b += F(",\"cmd\":\"");
+    b += jsonEsc(st.cfg.cmdResult);
+    b += '"';
+  }
+  if (otaStatus.length()) {
+    b += F(",\"ota\":\"");
+    b += jsonEsc(otaStatus);
+    b += '"';
+  }
   b += F(",\"fw\":\"" FW_VERSION "\"}");
   return b;
 }

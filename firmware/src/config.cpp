@@ -55,6 +55,9 @@ bool configLoad(Config &c) {
   c.displayOn = doc["disp"] | true;
   c.hcRoKey = doc["rokey"] | "";
   c.remoteMode = doc["rmode"] | "";
+  c.cmdKey = doc["ckey"] | "";
+  c.cmdTs = doc["cts"] | (uint32_t)0;
+  c.cmdResult = doc["cres"] | "";
   if (c.intervalS < 30 || c.intervalS > 3600) c.intervalS = 60;
   return true;
 }
@@ -82,6 +85,9 @@ bool configSave(const Config &c) {
   doc["disp"] = c.displayOn;
   doc["rokey"] = c.hcRoKey;
   doc["rmode"] = c.remoteMode;
+  doc["ckey"] = c.cmdKey;
+  doc["cts"] = c.cmdTs;
+  doc["cres"] = c.cmdResult;
   // Write to a temp file first, then rename: a power cut mid-write keeps the old config.
   File f = LittleFS.open("/config.tmp", "w");
   if (!f) return false;

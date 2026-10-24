@@ -1,7 +1,8 @@
 import unittest
 
 from _paths import *  # noqa: F401,F403
-from app.healthchecks import HealthchecksRelay, needs_body, new_success_pings, parse_body, with_mode
+from app.healthchecks import (HealthchecksRelay, needs_body, new_success_pings, parse_body, sign_cmd, with_line,
+                              with_mode)
 
 
 def ping(n, minute, type_="success"):
@@ -50,6 +51,16 @@ class ModeTest(unittest.TestCase):
         d = with_mode("ESP in the village\nsvitlo-mode=normal#1", "monitor", 5)
         self.assertEqual(d, "ESP in the village\nsvitlo-mode=monitor#5")
         self.assertEqual(with_mode("", "normal", 7), "svitlo-mode=normal#7")
+
+    def test_command_line_does_not_touch_the_mode_line(self):
+        d = with_line("svitlo-mode=monitor#5\nsvitlo-cmd=reboot#1#aa", "svitlo-cmd", "sensor#2#bb")
+        self.assertEqual(d, "svitlo-mode=monitor#5\nsvitlo-cmd=sensor#2#bb")
+
+    def test_signature_matches_the_firmware(self):
+        # The same value came out of hmacHex() in firmware remote.cpp, built on the host with BearSSL
+        # (24.10.2026). If this test fails, the board will reject every command.
+        self.assertEqual(sign_cmd("test-command-key-1234", "reboot", 1792900000),
+                         "reboot#1792900000#f62ec8cec332af370f614e84553eb15a")
 
 
 class FakeResp:

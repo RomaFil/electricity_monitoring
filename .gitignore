@@ -7,3 +7,5 @@ backups/
 .pio/
 firmware/**/secrets.h
 firmware/secrets.ini
+# firmware signing key: only on Roman's PC (firmware/make_keys.py)
+firmware/private.key
