@@ -146,13 +146,9 @@ static void applyCommand(const String &desc) {
   finish(cmd, ts, F("невідома команда"), false);
 }
 
-static void poll() {
-  String uuid = checkUuid();
-  if (!uuid.length() || !st.cfg.hcRoKey.length()) {
-    remoteStatus = !uuid.length() ? F("вимкнено: URL не hc-ping.com") : F("вимкнено: немає read-only ключа");
-    return;
-  }
-
+// Reads the check description into desc. A separate function so that the TLS client (~20 KB) is freed
+// before a command runs: "reboot" sends one more heartbeat first and needs that memory.
+static bool fetchDesc(const String &uuid, String &desc) {
   std::unique_ptr<BearSSL::WiFiClientSecure> tls(new BearSSL::WiFiClientSecure());
   tls->setTrustAnchors(trustSectigo());  // healthchecks.io has the same Sectigo chain as hc-ping.com
   if (timeValid()) tls->setX509Time(time(nullptr));
@@ -162,7 +158,7 @@ static void poll() {
   http.useHTTP10(true);
   if (!http.begin(*tls, String(F("https://healthchecks.io/api/v3/checks/")) + uuid)) {
     remoteStatus = F("помилка: неправильна адреса");
-    return;
+    return false;
   }
   http.addHeader(F("X-Api-Key"), st.cfg.hcRoKey);
   int code = http.GET();
@@ -173,7 +169,7 @@ static void poll() {
     char buf[80];
     if (code < 0 && tls->getLastSSLError(buf, sizeof(buf))) remoteStatus += String(F(" / TLS: ")) + buf;
     http.end();
-    return;
+    return false;
   }
   JsonDocument filter;
   filter["desc"] = true;
@@ -182,11 +178,21 @@ static void poll() {
   http.end();
   if (err) {
     remoteStatus = String(F("помилка JSON: ")) + err.c_str();
-    return;
+    return false;
   }
   remoteStatus = F("OK");
+  desc = doc["desc"] | "";
+  return true;
+}
 
-  String desc = doc["desc"] | "";
+static void poll() {
+  String uuid = checkUuid();
+  if (!uuid.length() || !st.cfg.hcRoKey.length()) {
+    remoteStatus = !uuid.length() ? F("вимкнено: URL не hc-ping.com") : F("вимкнено: немає read-only ключа");
+    return;
+  }
+  String desc;
+  if (!fetchDesc(uuid, desc)) return;
   applyMode(desc);
   applyCommand(desc);  // last: a command may restart the board
 }

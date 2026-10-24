@@ -213,6 +213,10 @@ void setup() {
   } else {
     apStart();
   }
+  // 802.11g only: the SDK crashed every few minutes on beacons of the village router (Exception 29 in
+  // ieee80211_setup_ratetable via cnx_update_bss_more, 24-25.10.2026, also with plenty of free heap).
+  // Known SDK bug (espressif/ESP8266_NONOS_SDK#320); 11g avoids it, and we need no 11n speed.
+  WiFi.setPhyMode(WIFI_PHY_MODE_11G);
   otaBoot(multi);  // a requested remote update runs now, while the heap is free; on success it restarts
   webBegin();
   lastConnectedMs = millis();

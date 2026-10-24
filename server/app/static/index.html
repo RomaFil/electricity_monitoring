@@ -316,7 +316,8 @@ function renderStatus(s) {
   // diagnostics are the last ESP report: without fresh pings say how old the reading is
   const dgOld = v.status !== "online" && v.obs && v.obs.diag_at ? `, <span style="color:var(--muted)">дані на ${t(v.last_ping || v.obs.diag_at)}</span>` : "";
   if (dg && dg.t != null) vk.push(`у селі: <b>${(+dg.t).toFixed(1)} °C</b>${dg.h != null ? `, <b>${Math.round(dg.h)} %</b>` : ""}${dgOld}`);
-  if (dg && dg.rssi != null) vk.push(`ESP: RSSI ${esc(dg.rssi)} dBm, прошивка ${esc(dg.fw || "?")}, перезапусків ${esc(dg.boot_count ?? "?")}`);
+  if (dg && dg.rssi != null) vk.push(`ESP: RSSI ${esc(dg.rssi)} dBm, прошивка ${esc(dg.fw || "?")}, перезапусків ${esc(dg.boot_count ?? "?")}` +
+    (dg.rst ? `, останній запуск: ${String(dg.rst).startsWith("Exception") ? `<span class="err">${esc(dg.rst)}</span>` : esc(dg.rst)}` : ""));
   $("v-kv").innerHTML = vk.join("<br>");
   renderEsp(v, now);
 

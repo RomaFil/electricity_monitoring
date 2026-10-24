@@ -31,7 +31,7 @@ def main():
             s = json.load(urllib.request.urlopen(URL, timeout=20))
             v = s["village"]
             d = (v.get("obs") or {}).get("diag") or {}
-            cur = {k: d.get(k) for k in ("boot_count", "uptime_s", "fw", "gold", "trial", "heap", "blk", "rssi", "ota")}
+            cur = {k: d.get(k) for k in ("boot_count", "uptime_s", "rst", "fw", "gold", "trial", "heap", "blk", "rssi", "ota")}
             cur["status"] = v.get("status")
             if prev:
                 notes = []

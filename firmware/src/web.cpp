@@ -112,6 +112,7 @@ static void handleStatus() {
   b += row(F("Невдач підряд / всього"), String(st.failsInRow) + " / " + st.failsTotal);
   b += row(F("Надіслано"), String(st.sentTotal));
   b += row(F("Перезапусків (boot count)"), String(st.bootCount));
+  b += row(F("Причина цього запуску"), esc(resetText()));
   String clock;
   if (timeSource == TimeSource::None) clock = F("<span class=bad>невідомий</span>");
   else {

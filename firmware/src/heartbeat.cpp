@@ -16,6 +16,20 @@
 static const time_t FALLBACK_TIME = 1792540800;
 
 
+String resetText() {
+  static String s;
+  if (!s.length()) {
+    const rst_info *r = ESP.getResetInfoPtr();
+    s = ESP.getResetReason();
+    if (r && r->reason == REASON_EXCEPTION_RST) {
+      char buf[40];
+      snprintf(buf, sizeof(buf), " (%u, epc1 0x%08x)", (unsigned)r->exccause, (unsigned)r->epc1);
+      s += buf;
+    }
+  }
+  return s;
+}
+
 static String jsonEsc(const String &s) {
   String o;
   for (char ch : s) {
@@ -74,7 +88,9 @@ static String body() {
     b += jsonEsc(otaStatus);
     b += '"';
   }
-  b += F(",\"fw\":\"" FW_VERSION "\"}");
+  b += F(",\"rst\":\"");  // why this start happened (an exception shows a crash before it)
+  b += jsonEsc(resetText());
+  b += F("\",\"fw\":\"" FW_VERSION "\"}");
   return b;
 }
 
