@@ -133,6 +133,8 @@ static void handleStatus() {
     if (!isnan(env.p)) sensor += F(", ") + String(env.p, 0) + F(" гПа");
     if (env.sensor == "BMP280") sensor += F(" <span class=muted>(BMP280 не міряє вологість)</span>");
   }
+  if (env.bad) sensor += String(F(" <span class=muted>(відкинуто показів з запуску: ")) + env.bad +
+                         F(" — перешкоди на дротах до датчика?)</span>");
   b += row(F("Датчик"), sensor);
   b += row(F("Шина I²C"), i2cScan());
   b += row(F("Дисплей"), esc(displayInfo));

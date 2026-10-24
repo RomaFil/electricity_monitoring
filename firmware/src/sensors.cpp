@@ -64,13 +64,30 @@ static void probeSensor() {
   }
 }
 
+// One BME280 measurement. Returns false if it does not look like real air.
+// On a long or noisy I2C line bits get lost: in the calibration the library reads once in begin()
+// (then every reading is wrong until the next begin) or in a single reading. Signs of it (24.10.2026,
+// after the sensor got longer wires): pressure out of range and humidity stuck at exactly 0 or 100
+// (the library clamps its result there), while the temperature can still look plausible.
+static bool bmeRead(float &t, float &rawH, float &p) {
+  if (!bme.takeForcedMeasurement()) return false;
+  t = bme.readTemperature();
+  rawH = bme.readHumidity();
+  p = bme.readPressure() / 100.0f;
+  return !isnan(t) && t > -40 && t < 85 && !isnan(p) && p > 300 && p < 1100 &&
+         !isnan(rawH) && rawH > 0.0f && rawH < 100.0f;
+}
+
 static void readSensor() {
   float t = NAN, h = NAN, p = NAN;
   if (env.sensor == "BME280") {
-    if (bme.takeForcedMeasurement()) {
-      t = bme.readTemperature();
-      h = constrain(bme.readHumidity() + st.cfg.humOffset, 0.0f, 100.0f);
-      p = bme.readPressure() / 100.0f;
+    // two measurements in a row must agree: a bit error in one of them shows up as a jump
+    float t2, h2, p2;
+    if (bmeRead(t, h, p) && bmeRead(t2, h2, p2) && fabsf(t - t2) < 0.5f && fabsf(h - h2) < 3.0f &&
+        fabsf(p - p2) < 1.0f) {
+      h = constrain(h + st.cfg.humOffset, 0.0f, 100.0f);  // the offset only after the check, so it cannot hide 0 %
+    } else {
+      t = h = p = NAN;  // -> env.ok = false -> probe again, begin() re-reads the calibration
     }
   } else if (env.sensor == "BMP280") {
     if (bmp.takeForcedMeasurement()) {
@@ -85,14 +102,16 @@ static void readSensor() {
   env.p = env.ok && !isnan(p) && p > 300 && p < 1100 ? p : NAN;
   env.readMs = millis();
   if (!env.ok) {
-    Serial.println(F("sensor reading failed, will probe again"));
+    Serial.println(F("sensor reading failed or implausible, will probe again"));
     env.sensor = "";
+    env.bad++;
   }
 }
 
 void sensorsBegin() {
   Wire.begin(4, 5);  // SDA = D2, SCL = D1
-  Wire.setClock(100000);
+  // 50 kHz instead of 100: more margin for the wires to the sensor (the LCD bus gets the same, it is enough)
+  Wire.setClock(50000);
 
   settimeofday_cb([](bool fromSntp) {
     if (fromSntp) {

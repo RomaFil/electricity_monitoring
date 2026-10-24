@@ -44,6 +44,8 @@ static String body() {
       b += String(env.p, 1);
     }
   }
+  b += F(",\"sbad\":");  // sensor readings thrown away since boot
+  b += env.bad;
   b += F(",\"ip\":\"");  // for the link on the dashboard (works only from the same Wi-Fi)
   b += WiFi.localIP().toString();
   b += F("\",\"disp\":");

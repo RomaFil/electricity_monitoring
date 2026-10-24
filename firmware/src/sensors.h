@@ -13,6 +13,7 @@ struct Env {
   float h = NAN;          // %, NAN on BMP280
   float p = NAN;          // hPa
   uint32_t readMs = 0;
+  uint32_t bad = 0;       // readings thrown away since boot (failed or implausible)
 };
 
 extern Env env;
