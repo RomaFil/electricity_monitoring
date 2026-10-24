@@ -44,6 +44,11 @@ def schedule_targets():
     return out
 
 
+# Outdoor temperature for the village chart (Open-Meteo); empty OUTDOOR_LAT = off
+OUTDOOR_LAT = os.environ.get("OUTDOOR_LAT", "50.6331")   # смт Бабинці
+OUTDOOR_LON = os.environ.get("OUTDOOR_LON", "30.0239")
+OUTDOOR_EVERY_S = _f("OUTDOOR_EVERY_S", 1800)
+
 RATE_LIMIT_PER_MIN = int(os.environ.get("RATE_LIMIT_PER_MIN", 30))
 
 

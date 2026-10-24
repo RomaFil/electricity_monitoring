@@ -90,6 +90,7 @@ svg .cursor { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; }
 svg { width: 100%; height: 160px; display: block; }
 svg .temp { fill: none; stroke: #ff9f43; stroke-width: 1.8; }
 svg .hum { fill: none; stroke: var(--accent); stroke-width: 1.6; opacity: .9; }
+svg .outt { fill: none; stroke: #c58cff; stroke-width: 1.8; stroke-dasharray: 5 3; }
 svg .lbl.r { text-anchor: end; }
 .now { display: flex; gap: 24px; flex-wrap: wrap; margin: 4px 0 10px; }
 .now div { font-size: 26px; font-weight: 600; }
@@ -162,12 +163,13 @@ label.chk { font-size: 13px; color: var(--muted); display: flex; gap: 6px; align
   </section>
 
   <section class="card">
-    <div class="row-head"><h2>Село: температура й вологість</h2>
+    <div class="row-head"><h2>Село: температура в кімнаті й надворі</h2>
       <div class="seg" id="env-range"><button data-h="24" class="on">Доба</button><button data-h="168">Тиждень</button><button data-h="720">Місяць</button></div>
     </div>
     <div class="now" id="env-now"></div>
     <div class="chart" id="env-box"><svg id="env"></svg><div class="tip"></div></div>
-    <div class="legend"><span><i style="background:#ff9f43"></i>температура, °C (ліва шкала)</span>
+    <div class="legend"><span><i style="background:#ff9f43"></i>температура в кімнаті, °C (ліва шкала)</span>
+      <span><i style="background:#c58cff"></i>надворі, °C (Open-Meteo, ліва шкала)</span>
       <span><i style="background:var(--accent)"></i>вологість, % (права шкала)</span></div>
   </section>
 
@@ -373,7 +375,8 @@ function timeTicks(from, to) {
   return out;
 }
 
-// opts: {box, from, to, rows, series: [{key, cls, color, axis: "l"|"r", min, max, unit, name, digits}], bands, gap, extra}
+// opts: {box, from, to, rows, series: [{key, cls, color, axis: "l"|"r", min, max, unit, name, digits, gap, noAxis}],
+//        bands, gap, extra(row, values)}; noAxis = shares the scale of another series, no own labels
 function drawChart(opts) {
   const box = $(opts.box), svg = box.querySelector("svg"), tip = box.querySelector(".tip");
   const W = Math.max(300, svg.clientWidth), H = 260, L = 38, R = 40, T = 10, B = 24;
@@ -385,7 +388,7 @@ function drawChart(opts) {
   for (let i = 0; i <= 4; i++) {
     const yy = T + i / 4 * (H - T - B);
     s += `<line class="grid" x1="${L}" x2="${W - R}" y1="${yy}" y2="${yy}"/>`;
-    for (const sr of opts.series) {
+    for (const sr of opts.series.filter(sr => !sr.noAxis)) {
       const v = sr.max - i / 4 * (sr.max - sr.min);
       s += sr.axis === "r" ? `<text class="lbl" x="${W - R + 4}" y="${yy + 3}">${v.toFixed(0)}${sr.unit}</text>`
                            : `<text class="lbl" x="${L - 4}" y="${yy + 3}" text-anchor="end">${v.toFixed(0)}${sr.unit}</text>`;
@@ -401,7 +404,7 @@ function drawChart(opts) {
     const flush = () => { if (seg.length > 1) s += `<polyline class="${sr.cls}" points="${seg.join(" ")}"/>`; seg = []; };
     for (const r0 of rows) {
       if (r0[sr.key] == null) continue;
-      if (prev != null && r0.ts - prev > (opts.gap || 1800)) flush();  // no data for a while: break the line
+      if (prev != null && r0.ts - prev > (sr.gap || opts.gap || 1800)) flush();  // no data for a while: break the line
       seg.push(`${x(r0.ts).toFixed(1)},${ys[k](r0[sr.key]).toFixed(1)}`);
       prev = r0.ts;
     }
@@ -426,14 +429,18 @@ function drawChart(opts) {
     for (const r0 of rows) if (Math.abs(r0.ts - ts) < Math.abs(best.ts - ts)) best = r0;
     const cx = x(best.ts);
     let dots = `<line class="cursor" x1="${cx}" x2="${cx}" y1="${T}" y2="${H - B}"/>`;
-    const parts = [`<b>${fmtTip.format(new Date(best.ts * 1000))}</b>`];
+    const parts = [`<b>${fmtTip.format(new Date(best.ts * 1000))}</b>`], vals = {};
     opts.series.forEach((sr, k) => {
-      const v = best[sr.key];
-      if (v == null) return;
-      dots += `<circle cx="${cx}" cy="${ys[k](v)}" r="4" fill="${sr.color}"/>`;
+      // each series has its own sampling (5 min in the room, 1 h outdoors): take its nearest point
+      let near = null;
+      for (const r0 of rows) if (r0[sr.key] != null && (!near || Math.abs(r0.ts - best.ts) < Math.abs(near.ts - best.ts))) near = r0;
+      if (!near || Math.abs(near.ts - best.ts) > (sr.gap || opts.gap || 1800) / 2 + 60) return;
+      const v = near[sr.key];
+      vals[sr.key] = v;
+      dots += `<circle cx="${x(near.ts)}" cy="${ys[k](v)}" r="4" fill="${sr.color}"/>`;
       parts.push(`<span style="color:${sr.color}">●</span> ${sr.name}: <b>${(+v).toFixed(sr.digits ?? 0)}${sr.unit}</b>`);
     });
-    if (opts.extra) parts.push(...opts.extra(best));
+    if (opts.extra) parts.push(...opts.extra(best, vals));
     g.innerHTML = dots;
     tip.innerHTML = parts.join("<br>");
     tip.style.display = "block";
@@ -465,17 +472,24 @@ function renderBattery(rows, from, to) {
 
 function renderEnv(r) {
   lastEnv = r;
-  const L = r.last, fresh = L && (Date.now() / 1000 - L.ts) < 3600;
-  $("env-now").innerHTML = L ? `<div>${L.t.toFixed(1)} °C<small>температура${fresh ? "" : ", " + t(L.ts)}</small></div>` +
-      (L.h != null ? `<div>${Math.round(L.h)} %<small>вологість</small></div>` : "") +
-      (L.p != null ? `<div>${Math.round(L.p)}<small>тиск, гПа</small></div>` : "")
-    : `<div style="font-size:15px;color:var(--muted)">Ще немає даних з датчика</div>`;
-  const ts = r.rows.filter(x => x.t != null).map(x => x.t);
+  const L = r.last, fresh = L && (Date.now() / 1000 - L.ts) < 3600, O = r.outdoor_last;
+  $("env-now").innerHTML = (L ? `<div>${L.t.toFixed(1)} °C<small>у кімнаті${fresh ? "" : ", " + t(L.ts)}</small></div>`
+      : `<div style="font-size:15px;color:var(--muted)">Ще немає даних з датчика</div>`) +
+    (O ? `<div style="color:#c58cff">${O.t.toFixed(1)} °C<small>надворі, ${t(O.ts)}</small></div>` : "") +
+    (L && L.h != null ? `<div>${Math.round(L.h)} %<small>вологість</small></div>` : "") +
+    (L && L.p != null ? `<div>${Math.round(L.p)}<small>тиск, гПа</small></div>` : "");
+  // one row list for the chart: room samples (t, h, p) and outdoor hours (out)
+  const rows = r.rows.concat((r.outdoor || []).map(o => ({ts: o.ts, out: o.t}))).sort((a, b) => a.ts - b.ts);
+  const ts = rows.flatMap(x => [x.t, x.out]).filter(v => v != null);
   const tmin = ts.length ? Math.floor(Math.min(...ts) - 1) : 0, tmax = ts.length ? Math.ceil(Math.max(...ts) + 1) : 30;
-  drawChart({box: "env-box", from: r.from, to: r.to, rows: r.rows,
-    series: [{key: "t", cls: "temp", color: "#ff9f43", axis: "l", min: tmin, max: tmax, unit: "°", name: "температура", digits: 1},
+  drawChart({box: "env-box", from: r.from, to: r.to, rows,
+    series: [{key: "t", cls: "temp", color: "#ff9f43", axis: "l", min: tmin, max: tmax, unit: "°", name: "у кімнаті", digits: 1},
+             {key: "out", cls: "outt", color: "#c58cff", axis: "l", min: tmin, max: tmax, unit: "°", name: "надворі", digits: 1,
+              gap: 3 * 3600, noAxis: true},
              {key: "h", cls: "hum", color: "var(--accent)", axis: "r", min: 0, max: 100, unit: "%", name: "вологість"}],
-    extra: r0 => r0.p != null ? [`тиск: <b>${Math.round(r0.p)} гПа</b>`] : []});
+    extra: (r0, v) => [
+      ...(v.t != null && v.out != null ? [`різниця: <b>${v.t - v.out >= 0 ? "+" : "−"}${Math.abs(v.t - v.out).toFixed(1)}°</b>`] : []),
+      ...(r0.p != null ? [`тиск: <b>${Math.round(r0.p)} гПа</b>`] : [])]});
 }
 // redraw when the chart width changes (window resize, the page shown after being hidden)
 new ResizeObserver(() => {

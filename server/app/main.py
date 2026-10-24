@@ -228,13 +228,17 @@ def api_daily(source: str = "home", days: int = 7, week: int = 0, c=Depends(con)
 
 @app.get("/api/sensors")
 def api_sensors(hours: float = 24, c=Depends(con)):
-    """Village temperature / humidity / pressure for the chart."""
+    """Village temperature / humidity / pressure for the chart, plus the outdoor temperature (Open-Meteo)."""
     now = time.time()
     since = now - max(1.0, min(hours, 24 * 92)) * 3600
     rows = c.execute("SELECT ts, t, h, p FROM sensor_samples WHERE ts>=? ORDER BY ts", (since,)).fetchall()
     step = max(1, len(rows) // 600)
     last = c.execute("SELECT ts, t, h, p FROM sensor_samples ORDER BY ts DESC LIMIT 1").fetchone()
-    return {"from": since, "to": now, "rows": [dict(r) for r in rows[::step]], "last": dict(last) if last else None}
+    out = c.execute("SELECT ts, t FROM outdoor_samples WHERE ts>=? ORDER BY ts", (since,)).fetchall()
+    out_last = c.execute("SELECT ts, t FROM outdoor_samples ORDER BY ts DESC LIMIT 1").fetchone()
+    return {"from": since, "to": now, "rows": [dict(r) for r in rows[::step]], "last": dict(last) if last else None,
+            "outdoor": [dict(r) for r in out[::max(1, len(out) // 600)]],
+            "outdoor_last": dict(out_last) if out_last else None}
 
 
 @app.get("/api/battery")

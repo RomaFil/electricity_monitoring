@@ -8,7 +8,7 @@ import time
 
 import httpx
 
-from . import config, db, schedule
+from . import config, db, outdoor, schedule
 from .healthchecks import HealthchecksRelay
 from .village import Ping, State, on_ping, on_tick
 
@@ -155,6 +155,32 @@ class Schedules:
         db.set_meta(self.con, "schedule_status", status)
 
 
+class Outdoor:
+    """Hourly outdoor temperature at the village (Open-Meteo)."""
+
+    def __init__(self, con):
+        self.con = con
+        self.http = httpx.Client(timeout=30)
+        self.next = 0.0
+
+    def step(self, now):
+        if now < self.next:
+            return
+        self.next = now + config.OUTDOOR_EVERY_S
+        empty = self.con.execute("SELECT 1 FROM outdoor_samples LIMIT 1").fetchone() is None
+        try:
+            r = self.http.get(outdoor.URL, params=outdoor.params(float(config.OUTDOOR_LAT), float(config.OUTDOOR_LON),
+                                                                 7 if empty else 2))
+            r.raise_for_status()
+            rows = outdoor.parse(r.json(), now)
+            self.con.executemany("INSERT INTO outdoor_samples(ts,t) VALUES(?,?) "
+                                 "ON CONFLICT(ts) DO UPDATE SET t=excluded.t", rows)
+            db.set_meta(self.con, "outdoor_status", {"ok": True, "checked": now})
+        except Exception as exc:
+            log.warning("outdoor temperature failed: %s", exc)
+            db.set_meta(self.con, "outdoor_status", {"ok": False, "checked": now, "error": str(exc)[:200]})
+
+
 def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     # httpx logs every request URL, and the URL contains the secret check UUID
@@ -172,6 +198,7 @@ def main():
     source = Relay(con) if mode == "healthchecks" else Direct(con, now) if mode == "direct" else None
     log.info("poller started, village source: %s", mode)
     schedules = Schedules(con) if config.schedule_targets() else None
+    outdoor_temp = Outdoor(con) if config.OUTDOOR_LAT else None
 
     while True:
         now = time.time()
@@ -183,6 +210,8 @@ def main():
             db.set_meta(con, "village_state", st.to_dict())
         if schedules:
             schedules.step(now)
+        if outdoor_temp:
+            outdoor_temp.step(now)
         db.set_meta(con, "poller_tick", now)
         time.sleep(TICK_S)
 

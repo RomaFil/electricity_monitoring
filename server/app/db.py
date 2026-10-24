@@ -47,6 +47,12 @@ CREATE TABLE IF NOT EXISTS sensor_samples(
     p       REAL                    -- hPa
 );
 
+-- outdoor temperature at the village from Open-Meteo, hourly (recent hours get revised, so upsert)
+CREATE TABLE IF NOT EXISTS outdoor_samples(
+    ts      REAL PRIMARY KEY,
+    t       REAL                    -- °C
+);
+
 -- official schedule per source and local day: 24 hour values ("yes", "no", "first", ...), latest version
 CREATE TABLE IF NOT EXISTS schedule_days(
     source  TEXT NOT NULL,
