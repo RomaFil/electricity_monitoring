@@ -3,9 +3,11 @@
 
     nohup python3 night-monitor.py 10 >> night-monitor.log 2>&1 &
 
-Every 2 minutes reads the dashboard API (the ESP diagnostics the poller fetches every ~5 minutes)
-and writes a line when the board restarted (boot count up or uptime down), when its firmware,
-golden copy or trial state changed, and a summary line every 30 minutes. Stops after N hours.
+Every minute reads the dashboard API and writes one line: the board's boot count, uptime, reason of
+the last start, memory, signal, last ping. A restart (boot count up or uptime down) and a change of
+firmware, golden copy, trial or status are marked at the start of the line. Stops after N hours.
+For a detail of one line per minute set DIAG_BODY_EVERY_S=60 in .env (the poller then reads the
+ESP diagnostics every minute instead of every 5).
 """
 import json
 import sys
@@ -13,8 +15,7 @@ import time
 import urllib.request
 
 URL = "http://10.0.0.1:3003/api/status"
-EVERY_S = 120
-SUMMARY_S = 1800
+EVERY_S = 60
 
 
 def now():
@@ -24,7 +25,7 @@ def now():
 def main():
     hours = float(sys.argv[1]) if len(sys.argv) > 1 else 10
     end = time.time() + hours * 3600
-    prev, last_summary, restarts = None, 0.0, 0
+    prev, restarts = None, 0
     print(f"{now()} start, {hours:g} h", flush=True)
     while time.time() < end:
         try:
@@ -33,8 +34,9 @@ def main():
             d = (v.get("obs") or {}).get("diag") or {}
             cur = {k: d.get(k) for k in ("boot_count", "uptime_s", "rst", "fw", "gold", "trial", "heap", "blk", "rssi", "ota")}
             cur["status"] = v.get("status")
+            cur["last_ping"] = time.strftime("%H:%M:%S", time.localtime(v["last_ping"])) if v.get("last_ping") else None
+            notes = []
             if prev:
-                notes = []
                 if cur["boot_count"] is not None and prev["boot_count"] is not None and cur["boot_count"] > prev["boot_count"]:
                     restarts += cur["boot_count"] - prev["boot_count"]
                     notes.append(f"RESTART x{cur['boot_count'] - prev['boot_count']}")
@@ -44,11 +46,10 @@ def main():
                 for k in ("fw", "gold", "trial", "ota", "status"):
                     if cur[k] != prev[k]:
                         notes.append(f"{k}: {prev[k]} -> {cur[k]}")
-                if notes:
-                    print(f"{now()} {'; '.join(notes)} | {cur}", flush=True)
-            if time.time() - last_summary >= SUMMARY_S:
-                last_summary = time.time()
-                print(f"{now()} ok, restarts so far {restarts} | {cur}", flush=True)
+            mark = "; ".join(notes) if notes else "ok"
+            print(f"{now()} {mark} | restarts {restarts} | boot {cur['boot_count']} up {cur['uptime_s']} "
+                  f"rst={cur['rst']} heap {cur['heap']} blk {cur['blk']} rssi {cur['rssi']} fw {cur['fw']} "
+                  f"gold {cur['gold']} trial {cur['trial']} {cur['status']} ping {cur['last_ping']}", flush=True)
             prev = cur
         except Exception as exc:  # the dashboard restarting, network: just note it
             print(f"{now()} error: {exc}", flush=True)
