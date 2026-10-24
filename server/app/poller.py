@@ -66,7 +66,8 @@ class Relay:
                 store_pings(self.con, pings)
                 st = process(self.con, st, pings)
                 db.set_meta(self.con, "hc_cursor", cursor)
-                obs = {"ok": True, "complete": complete, "last_ok": now, "error": None}
+                # keep the last ESP diagnostics (IP, display, RSSI): they are refreshed only every few minutes
+                obs = {**obs, "ok": True, "complete": complete, "last_ok": now, "error": None}
                 if db.get_meta(self.con, "diag_soon"):  # a dashboard command was sent: confirm it sooner
                     db.set_meta(self.con, "diag_soon", False)
                     self.next_diag = 0
