@@ -249,6 +249,14 @@ function newer(a, b) {
   return false;
 }
 
+const cmdName = c => c === "reboot" ? "перезапуск" : c === "sensor" ? "перечитати датчик"
+  : c.startsWith("ota:") ? `оновлення до ${c.slice(4)}` : c;
+// "sensor#1792900000 датчик перечитано: 21.3 °C" (ping body) -> readable text
+function cmdText(s) {
+  const m = /^([^#\s]+)#(\d+) (.*)$/.exec(s || "");
+  return m ? `${esc(cmdName(m[1]))}, ${t(+m[2])}: ${esc(m[3])}` : esc(s);
+}
+
 // Remote control of the ESP from far away: commands signed with ESP_CMD_KEY go through the
 // Healthchecks check description, the board fetches them itself (no port is open anywhere).
 function renderCtl(v, fw, now) {
@@ -261,11 +269,11 @@ function renderCtl(v, fw, now) {
   const sig = dg.sig == null ? `<span class="u">для оновлень потрібна прошивка 0.7.0</span>`
     : +dg.sig ? "підпис перевіряється" : `<span class="err">підпис не перевіряється, оновлення лише через USB</span>`;
   p.push(`Прошивка: <b>${esc(dg.fw || "?")}</b>, ${sig}`);
-  if (dg.cmd) p.push(`Остання команда: ${esc(dg.cmd)}`);
+  if (dg.cmd) p.push(`Остання команда: ${cmdText(dg.cmd)}`);
   if (dg.ota) p.push(`Оновлення: ${esc(dg.ota)}`);
   if (sent && sent.ok === false) p.push(`<span class="err">Команду не надіслано: ${esc(sent.error || "")}</span>`);
   else if (sent && now - sent.at < 900 && !String(dg.cmd || "").startsWith(`${sent.cmd}#${sent.at}`))
-    p.push(`Надіслано «${esc(sent.cmd)}» о ${fmtH.format(new Date(sent.at * 1000))}, плата виконає протягом ~2 хв`);
+    p.push(`Надіслано «${esc(cmdName(sent.cmd))}» о ${fmtH.format(new Date(sent.at * 1000))}, плата виконає протягом ~2 хв`);
   const latest = (fw.versions || [])[0];
   let btns = `<button class="btn2" data-cmd="reboot">↻ Перезапустити плату</button> ` +
              `<button class="btn2" data-cmd="sensor">🌡 Перечитати датчик</button>`;
