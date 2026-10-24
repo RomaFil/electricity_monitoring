@@ -9,6 +9,7 @@ import time
 from collections import defaultdict, deque
 from datetime import datetime, timedelta
 from pathlib import Path
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 from typing import Any
@@ -16,7 +17,7 @@ from typing import Any
 from fastapi import Body, Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse
 
-from . import config, db, home, schedule, stats
+from . import config, db, firmware, home, schedule, stats
 
 app = FastAPI(title="Svitlo-Local", docs_url=None, redoc_url=None)
 STATIC = Path(__file__).parent / "static"
@@ -123,11 +124,20 @@ def _last_event(c, source, types):
     return db.row_to_event(r) if r else None
 
 
+def same_origin(request: Request):
+    """Dashboard buttons: refuse a request that a page from another site made the browser send.
+    The dashboard is reachable only through WireGuard, this is the second lock. No Origin = not a browser."""
+    origin = request.headers.get("origin")
+    if origin is not None and urlparse(origin).netloc != request.headers.get("host", ""):
+        raise HTTPException(403, "request from a foreign page")
+
+
 @app.post("/api/esp/display")
 def api_esp_display(request: Request, body: Any = Body(None), c=Depends(con)):
     """Dashboard button: monitoring mode on the ESP (display off) or back to normal.
     Goes through the Healthchecks check description; the ESP picks it up within ~2 minutes."""
     rate_limit(request)
+    same_origin(request)
     if not config.hc_configured():
         raise HTTPException(503, "Healthchecks is not configured")
     on = bool(body.get("on")) if isinstance(body, dict) else False
@@ -149,6 +159,60 @@ def api_esp_display(request: Request, body: Any = Body(None), c=Depends(con)):
     return cmd
 
 
+ESP_COMMANDS = ("reboot", "sensor", "ota")
+
+
+@app.get("/api/esp/firmware")
+def api_esp_firmware():
+    """Signed firmware versions on GitHub Releases, for the update button."""
+    import httpx
+    with httpx.Client() as http:
+        rel = firmware.releases(http, config.FW_REPO)
+    return {**rel, "repo": config.FW_REPO, "commands": bool(config.ESP_CMD_KEY)}
+
+
+@app.post("/api/esp/command")
+def api_esp_command(request: Request, body: Any = Body(None), c=Depends(con)):
+    """Dashboard buttons: reboot the ESP, re-read its sensor, update its firmware from GitHub.
+    The command is signed with ESP_CMD_KEY (the board has the same key) and goes through the
+    Healthchecks check description like the display button; the ESP picks it up within ~2 minutes."""
+    rate_limit(request)
+    same_origin(request)
+    if "application/json" not in request.headers.get("content-type", ""):
+        raise HTTPException(415, "JSON only")  # a cross-site HTML form cannot send JSON
+    if not config.ESP_CMD_KEY:
+        raise HTTPException(503, "ESP_CMD_KEY is not set on the server")
+    if not config.hc_configured():
+        raise HTTPException(503, "Healthchecks is not configured")
+    kind = body.get("cmd") if isinstance(body, dict) else None
+    if kind not in ESP_COMMANDS:
+        raise HTTPException(400, "cmd must be one of " + ", ".join(ESP_COMMANDS))
+    import httpx
+    from .healthchecks import HealthchecksRelay, sign_cmd
+    cmd = kind
+    with httpx.Client() as http:
+        if kind == "ota":
+            ver = str(body.get("version") or "")
+            if not firmware.VERSION_RE.match(ver):
+                raise HTTPException(400, "bad version")
+            if ver not in [v["version"] for v in firmware.releases(http, config.FW_REPO)["versions"]]:
+                raise HTTPException(400, f"release v{ver} has no {firmware.ASSET}")
+            cmd = f"ota:{ver}"
+        now = int(time.time())
+        sent = {"cmd": cmd, "at": now}
+        try:
+            HealthchecksRelay(http, config.HC_API_BASE, config.HC_API_KEY, config.HC_CHECK_UUID).set_cmd(
+                sign_cmd(config.ESP_CMD_KEY, cmd, now))
+            sent["ok"] = True
+        except Exception as exc:
+            sent.update(ok=False, error=str(exc)[:200].replace(config.HC_CHECK_UUID, "<uuid>"))
+    db.set_meta(c, "esp_cmd_sent", sent)
+    db.set_meta(c, "diag_soon", True)
+    if not sent["ok"]:
+        raise HTTPException(502, sent["error"])
+    return sent
+
+
 @app.get("/api/status")
 def api_status(c=Depends(con)):
     now = time.time()
@@ -159,6 +223,7 @@ def api_status(c=Depends(con)):
         "obs": db.get_meta(c, "village_obs", {}),
         "threshold_s": config.VILLAGE_THRESHOLD_S,
         "esp_cmd": db.get_meta(c, "esp_cmd"),
+        "esp_cmd_sent": db.get_meta(c, "esp_cmd_sent"),
     }
     sample = c.execute("SELECT * FROM power_samples ORDER BY ts DESC LIMIT 1").fetchone()
     ctrl = _last_event(c, "home", ("sleep_start", "sleep_end", "forced_poweroff", "guard_start"))

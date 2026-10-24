@@ -96,5 +96,33 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(self.c.post("/api/heartbeat", json={}).status_code, 404)
 
 
+    def test_esp_command_is_signed_and_guarded(self):
+        from app import config, firmware, healthchecks
+        h = {"Content-Type": "application/json"}
+        self.assertEqual(self.c.post("/api/esp/command", json={"cmd": "reboot"}).status_code, 503)  # no key
+        config.ESP_CMD_KEY, config.HC_API_KEY, config.HC_CHECK_UUID = "k" * 20, "api", "uuid"
+        sent = []
+        orig = healthchecks.HealthchecksRelay.set_cmd
+        healthchecks.HealthchecksRelay.set_cmd = lambda self, token: sent.append(token)
+        firmware._cache.update(at=1e12, ttl=1e12, data={"versions": [{"version": "0.7.1"}], "error": None})
+        try:
+            self.assertEqual(self.c.post("/api/esp/command", json={"cmd": "factory_reset"}).status_code, 400)
+            self.assertEqual(self.c.post("/api/esp/command", content="cmd=reboot",
+                                         headers={"Content-Type": "application/x-www-form-urlencoded"}).status_code, 415)
+            self.assertEqual(self.c.post("/api/esp/command", json={"cmd": "reboot"},
+                                         headers={"Origin": "https://evil.example"}).status_code, 403)
+            self.assertEqual(self.c.post("/api/esp/command", json={"cmd": "ota", "version": "9.9.9"}).status_code, 400)
+            r = self.c.post("/api/esp/command", json={"cmd": "ota", "version": "0.7.1"},
+                            headers={**h, "Origin": "http://testserver"})
+            self.assertEqual(r.status_code, 200, r.text)
+            cmd, ts, mac = sent[-1].split("#")
+            self.assertEqual(cmd, "ota:0.7.1")
+            self.assertEqual(sent[-1], healthchecks.sign_cmd("k" * 20, cmd, int(ts)))
+            self.assertEqual(self.c.get("/api/status").json()["village"]["esp_cmd_sent"]["cmd"], "ota:0.7.1")
+        finally:
+            healthchecks.HealthchecksRelay.set_cmd = orig
+            firmware._cache.update(at=0.0, ttl=0.0, data=None)
+
+
 if __name__ == "__main__":
     unittest.main()

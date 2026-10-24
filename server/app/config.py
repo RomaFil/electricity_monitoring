@@ -35,6 +35,13 @@ SCHEDULE_VILLAGE = os.environ.get("SCHEDULE_VILLAGE", "kyiv-region:GPV4.2")  # �
 SCHEDULE_EVERY_S = _f("SCHEDULE_EVERY_S", 900)
 
 
+# Signed commands to the ESP (reboot, sensor, firmware update). The same secret is set on the board's
+# settings page ("Ключ команд"); empty = the dashboard buttons are off.
+ESP_CMD_KEY = os.environ.get("ESP_CMD_KEY", "")
+# Where the board downloads firmware.bin.signed from; the dashboard lists its releases.
+FW_REPO = os.environ.get("FW_REPO", "RomaFil/electricity_monitoring")
+
+
 def schedule_targets():
     out = {}
     for source, spec in (("home", SCHEDULE_HOME), ("village", SCHEDULE_VILLAGE)):

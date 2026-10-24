@@ -22,6 +22,7 @@
 #include "config.h"
 #include "display.h"
 #include "forecast.h"
+#include "ota.h"
 #include "remote.h"
 #include "heartbeat.h"
 #include "sensors.h"
@@ -180,6 +181,7 @@ void setup() {
 
   pinMode(FLASH_PIN, INPUT_PULLUP);
   configBegin();
+  otaSignatureBegin();  // before anything can install an image (the /update page, a remote update)
   setenv("TZ", TZ_KYIV, 1);
   tzset();
   st.bootCount = bootCountIncrement();
@@ -199,6 +201,7 @@ void setup() {
   } else {
     apStart();
   }
+  otaBoot(multi);  // a requested remote update runs now, while the heap is free; on success it restarts
   webBegin();
   lastConnectedMs = millis();
 }

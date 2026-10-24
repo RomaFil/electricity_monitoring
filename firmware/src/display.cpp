@@ -215,9 +215,12 @@ static void forecastScreen(String &l1, String &l2) {
   l1 += right;
 
   snprintf(buf, sizeof(buf), "%.0f/%.0f", fc.tmrMin, fc.tmrMax);
-  l2 = String(F("Zavtra")) + ICON_TMR + ' ' + buf + DEG;
+  String temps = String(buf) + DEG;
+  l2 = String(F("Zavtra")) + ICON_TMR + ' ' + temps;
   if (fc.tmrRain >= 20) {  // chance of rain/snow, only when it matters
     snprintf(buf, sizeof(buf), "%d%%", fc.tmrRain);
+    // "Zavtra☂ 6/14° 80%" is 17 characters: then without the space after the icon
+    if (l2.length() + 1 + strlen(buf) > 16) l2 = String(F("Zavtra")) + ICON_TMR + temps;
     if (l2.length() + 1 + strlen(buf) <= 16) {
       while (l2.length() + strlen(buf) < 16) l2 += ' ';
       l2 += buf;

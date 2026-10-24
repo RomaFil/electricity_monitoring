@@ -28,6 +28,11 @@ struct Config {
   // Read-only Healthchecks API key: lets the board read the dashboard's command from the check description.
   String hcRoKey;
   String remoteMode;  // last command seen there ("monitor" / "normal"), so it is applied only once
+  // Secret for signed dashboard commands (reboot, sensor, ota:<version>), the same as ESP_CMD_KEY on the
+  // VPS. Never in the firmware or git: the firmware is public on GitHub Releases.
+  String cmdKey;
+  uint32_t cmdTs = 0;  // time of the last executed command: older or repeated ones are ignored
+  String cmdResult;    // "reboot#1792900000 ok", for the status page and the ping body
 
   bool hasNetworks() const;
 };

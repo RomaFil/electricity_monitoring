@@ -166,6 +166,13 @@ void sensorsLoop() {
   }
 }
 
+bool sensorsReprobe() {
+  probeSensor();
+  if (env.sensor.length()) readSensor();
+  lastReadMs = lastProbeMs = millis();
+  return env.ok;
+}
+
 String i2cScan() {
   String s;
   for (uint8_t a = 0x08; a < 0x78; a++) {

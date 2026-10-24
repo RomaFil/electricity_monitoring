@@ -109,6 +109,7 @@ label.chk { font-size: 13px; color: var(--muted); display: flex; gap: 6px; align
   padding: 7px 12px; font: inherit; font-size: 14px; cursor: pointer; }
 .btn2:disabled { opacity: .5; cursor: default; }
 #v-esp a { color: var(--accent); }
+#v-esp .u, #v-ctl .u { color: var(--muted); }
 
 @media (max-width: 600px) {
   /* dense: the day label and totals share a row, the bar goes full width below */
@@ -130,6 +131,7 @@ label.chk { font-size: 13px; color: var(--muted); display: flex; gap: 6px; align
       <div class="state"><span class="dot" id="v-dot"></span><span id="v-text">—</span></div>
       <div class="kv" id="v-kv"></div>
       <div class="kv" id="v-esp" style="margin-top:8px"></div>
+      <div class="kv" id="v-ctl" style="margin-top:8px"></div>
     </section>
     <section class="card">
       <h2>Дім</h2>
@@ -238,6 +240,61 @@ function renderEsp(v, now) {
     } catch (e) { alert("Не вдалося надіслати команду: " + e.message); }
     refresh();
   };
+}
+
+const verKey = v => String(v || "").split(".").map(Number);
+function newer(a, b) {
+  const x = verKey(a), y = verKey(b);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d > 0; }
+  return false;
+}
+
+const cmdName = c => c === "reboot" ? "перезапуск" : c === "sensor" ? "перечитати датчик"
+  : c.startsWith("ota:") ? `оновлення до ${c.slice(4)}` : c;
+// "sensor#1792900000 датчик перечитано: 21.3 °C" (ping body) -> readable text
+function cmdText(s) {
+  const m = /^([^#\s]+)#(\d+) (.*)$/.exec(s || "");
+  return m ? `${esc(cmdName(m[1]))}, ${t(+m[2])}: ${esc(m[3])}` : esc(s);
+}
+
+// Remote control of the ESP from far away: commands signed with ESP_CMD_KEY go through the
+// Healthchecks check description, the board fetches them itself (no port is open anywhere).
+function renderCtl(v, fw, now) {
+  const box = $("v-ctl"), dg = (v.obs && v.obs.diag) || {}, sent = v.esp_cmd_sent;
+  if (fw.commands === false) {
+    box.innerHTML = `<span class="u">Віддалене керування вимкнене: на сервері не задано ESP_CMD_KEY.</span>`;
+    return;
+  }
+  const p = [];
+  const sig = dg.sig == null ? `<span class="u">для оновлень потрібна прошивка 0.7.0</span>`
+    : +dg.sig ? "підпис перевіряється" : `<span class="err">підпис не перевіряється, оновлення лише через USB</span>`;
+  p.push(`Прошивка: <b>${esc(dg.fw || "?")}</b>, ${sig}`);
+  if (dg.cmd) p.push(`Остання команда: ${cmdText(dg.cmd)}`);
+  if (dg.ota) p.push(`Оновлення: ${esc(dg.ota)}`);
+  if (sent && sent.ok === false) p.push(`<span class="err">Команду не надіслано: ${esc(sent.error || "")}</span>`);
+  else if (sent && now - sent.at < 900 && !String(dg.cmd || "").startsWith(`${sent.cmd}#${sent.at}`))
+    p.push(`Надіслано «${esc(cmdName(sent.cmd))}» о ${fmtH.format(new Date(sent.at * 1000))}, плата виконає протягом ~2 хв`);
+  const latest = (fw.versions || [])[0];
+  let btns = `<button class="btn2" data-cmd="reboot">↻ Перезапустити плату</button> ` +
+             `<button class="btn2" data-cmd="sensor">🌡 Перечитати датчик</button>`;
+  if (latest && dg.fw && newer(latest.version, dg.fw))
+    btns += ` <button class="btn2" data-cmd="ota" data-v="${esc(latest.version)}"${+dg.sig ? "" : " disabled"}>⬆ Оновити до ${esc(latest.version)}</button>`;
+  else if (latest) p.push(`<span class="u">Найновіша підписана версія на GitHub: ${esc(latest.version)}</span>`);
+  if (fw.error) p.push(`<span class="u">GitHub недоступний: ${esc(fw.error)}</span>`);
+  box.innerHTML = p.join("<br>") + "<br>" + btns;
+  box.querySelectorAll("button[data-cmd]").forEach(b => b.onclick = async () => {
+    const cmd = b.dataset.cmd, version = b.dataset.v;
+    const q = {reboot: "Перезапустити плату в селі?", sensor: "Перечитати датчик (BME280)?",
+               ota: `Оновити прошивку плати до ${version}? Плата сама завантажить підписаний образ з GitHub і перезапуститься.`}[cmd];
+    if (!confirm(q)) return;
+    b.disabled = true;
+    try {
+      const r = await fetch("api/esp/command", {method: "POST", headers: {"Content-Type": "application/json"},
+                                                body: JSON.stringify({cmd, version})});
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.status);
+    } catch (e) { alert("Не вдалося надіслати команду: " + e.message); }
+    refresh();
+  });
 }
 
 function renderStatus(s) {
@@ -532,6 +589,9 @@ async function refresh() {
       get(`api/daily?source=village&week=${week}`), get("api/battery?hours=24"),
       get("api/events?limit=100&technical=" + $("tech").checked), get("api/sensors?hours=" + envHours)]);
     renderStatus(s); renderBars(source === "home" ? wh : wv); renderTable(wh, wv); renderBattery(b, now - 86400, now); renderEvents(e); renderEnv(env);
+    // separately: the server may wait on GitHub the first time, the rest of the page must not
+    get("api/esp/firmware").then(fw => renderCtl(s.village, fw, s.now),
+                                 () => renderCtl(s.village, {error: "сервер не відповів"}, s.now));
   } catch (err) {
     $("updated").innerHTML = `<span class="err">немає зв'язку з сервером</span>`;
   }

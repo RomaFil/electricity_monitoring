@@ -9,6 +9,7 @@
 #include "display.h"
 #include "forecast.h"
 #include "heartbeat.h"
+#include "ota.h"
 #include "remote.h"
 #include "sensors.h"
 #include "state.h"
@@ -139,6 +140,11 @@ static void handleStatus() {
   b += row(F("Шина I²C"), i2cScan());
   b += row(F("Дисплей"), esc(displayInfo));
   b += row(F("Команди з дашборда"), remoteStatus.length() ? esc(remoteStatus) : String(F("ще не перевірялись")));
+  b += row(F("Остання віддалена команда"), st.cfg.cmdResult.length() ? esc(st.cfg.cmdResult) : String(F("ще не було")));
+  b += row(F("Підпис прошивки"), otaSigned() ? String(F("<span class=ok>увімкнено: приймає лише підписані образи</span>"))
+                                             : String(F("<span class=bad>вимкнено: зібрано без public.key, "
+                                                        "оновлення з дашборда вимкнені</span>")));
+  b += row(F("Оновлення з GitHub"), otaStatus.length() ? esc(otaStatus) : String(F("ще не було")));
   b += row(F("Режим"), st.cfg.displayOn ? String(F("звичайний (дисплей увімкнено)"))
                                          : String(F("<span class=ok>моніторинг: дисплей вимкнено</span>")));
   String f;
@@ -220,6 +226,10 @@ static void handleSettingsGet() {
          "З ним плата раз на 2 хв читає команду «режим моніторингу» з дашборда. Нічого змінити цим ключем не можна.</p>"
          "<label>Read-only ключ</label><input type=password name=rokey placeholder=\"");
   b += st.cfg.hcRoKey.length() ? F("без змін") : F("не задано");
+  b += F("\"><label>Ключ команд (той самий, що ESP_CMD_KEY на сервері; щонайменше 16 символів)</label>"
+         "<p class=muted>Ним сервер підписує команди «перезапустити», «перечитати датчик» і «оновити прошивку». "
+         "Без нього плата ці команди не виконує.</p><input type=password name=ckey minlength=16 placeholder=\"");
+  b += st.cfg.cmdKey.length() ? F("без змін") : F("не задано");
   b += F("\"></div><div class=card><h2>Прогноз погоди (Open-Meteo)</h2>"
          "<label>Назва латиницею (видно на екрані)</label><input name=fcn maxlength=9 value=\"");
   b += esc(c.fcName);
@@ -240,27 +250,34 @@ static void handleSettingsGet() {
 static void handleSettingsPost() {
   if (!authOk()) return;
   Config c = st.cfg;
+  // The form always sends every field. A field that is missing (e.g. "curl -d ckey=..." that sets only
+  // the command key) keeps its value, so a partial request can never wipe the Wi-Fi networks or the URL.
   for (int i = 0; i < 3; i++) {
+    if (!server.hasArg(String("s") + i)) continue;
     c.nets[i].ssid = server.arg(String("s") + i);
     c.nets[i].ssid.trim();
     String p = server.arg(String("p") + i);
     if (p.length()) c.nets[i].pass = p;
     if (!c.nets[i].ssid.length()) c.nets[i].pass = "";
   }
-  String url = server.arg("url");
+  String url = server.hasArg("url") ? server.arg("url") : c.url;
   url.trim();
   String key = server.arg("key");
   if (key.length()) c.deviceKey = key;
-  long interval = server.arg("interval").toInt();
-  c.tlsMode = server.arg("tls");
+  long interval = server.hasArg("interval") ? server.arg("interval").toInt() : (long)c.intervalS;
+  if (server.hasArg("tls")) c.tlsMode = server.arg("tls");
   if (c.tlsMode != "fingerprint" && c.tlsMode != "insecure") c.tlsMode = "ca";
-  c.fingerprint = server.arg("fp");
-  c.fingerprint.trim();
+  if (server.hasArg("fp")) {
+    c.fingerprint = server.arg("fp");
+    c.fingerprint.trim();
+  }
   String admin = server.arg("admin");
   if (server.hasArg("toff")) c.tempOffset = constrain(server.arg("toff").toFloat(), -10.0f, 10.0f);
   String rokey = server.arg("rokey");
   rokey.trim();  // a space copied together with the key gives HTTP 401
   if (rokey.length()) c.hcRoKey = rokey;
+  String ckey = server.arg("ckey");
+  ckey.trim();
   if (server.hasArg("fcn")) {
     c.fcName = server.arg("fcn");
     c.fcName.trim();
@@ -275,12 +292,14 @@ static void handleSettingsPost() {
   else if (admin.length() && admin.length() < 8) err = F("Пароль адміністратора — щонайменше 8 символів");
   else if (!admin.length() && !c.adminPass.length()) err = F("Задайте пароль адміністратора");
   else if (c.tlsMode == "fingerprint" && c.fingerprint.length() < 40) err = F("Для режиму «відбиток» потрібен SHA-1 відбиток");
+  else if (ckey.length() && ckey.length() < 16) err = F("Ключ команд — щонайменше 16 символів");
   if (err.length()) {
     sendPage(String(F("<h1>Не збережено</h1><p class=bad>")) + err + F("</p><p><a href=/settings>← назад</a></p>"), 400);
     return;
   }
   c.url = url;
   c.intervalS = interval;
+  if (ckey.length()) c.cmdKey = ckey;
   if (admin.length()) c.adminPass = admin;
   if (!configSave(c)) {
     sendPage(F("<h1>Помилка запису у flash</h1>"), 500);

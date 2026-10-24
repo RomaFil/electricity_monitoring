@@ -11,6 +11,8 @@ Endpoints used (docs: https://healthchecks.io/docs/api/):
 Pings list and bodies need the full (not read-only) API key.
 Rate limit: ~100 requests/minute; we use 1-3 per poll.
 """
+import hashlib
+import hmac
 import json
 from datetime import datetime
 from urllib.parse import parse_qsl
@@ -58,11 +60,22 @@ def new_success_pings(raw_pings: list, cursor: int | None):
     return out, fresh[-1]["n"]
 
 
+def with_line(desc: str, key: str, value: str) -> str:
+    """Put "<key>=<value>" into a check description, replacing an old line with that key and
+    keeping the rest. The ESP reads these lines with its read-only key (firmware remote.cpp)."""
+    kept = [line for line in (desc or "").splitlines() if not line.strip().startswith(key + "=")]
+    return "\n".join(kept + [f"{key}={value}"]).strip()
+
+
 def with_mode(desc: str, mode: str, ts: int) -> str:
-    """Put "svitlo-mode=<mode>#<ts>" into a check description, keeping the rest of it.
-    The ESP reads this line with its read-only key (firmware remote.cpp)."""
-    kept = [line for line in (desc or "").splitlines() if not line.strip().startswith("svitlo-mode=")]
-    return "\n".join(kept + [f"svitlo-mode={mode}#{ts}"]).strip()
+    return with_line(desc, "svitlo-mode", f"{mode}#{ts}")
+
+
+def sign_cmd(key: str, cmd: str, ts: int) -> str:
+    """Signed command token "<cmd>#<ts>#<hmac>": HMAC-SHA256(key, "<cmd>#<ts>"), first 16 bytes in hex.
+    Must match hmacHex() in firmware remote.cpp."""
+    mac = hmac.new(key.encode(), f"{cmd}#{ts}".encode(), hashlib.sha256).hexdigest()[:32]
+    return f"{cmd}#{ts}#{mac}"
 
 
 def needs_body(pings: list, last_ping_ts: float | None, threshold: float) -> list:
@@ -97,6 +110,12 @@ class HealthchecksRelay:
     def set_mode(self, mode: str, ts: int):
         """Write the dashboard command into the check description (full API key)."""
         desc = with_mode(self.check().get("desc", ""), mode, ts)
+        r = self.http.post(self.base, headers=self.headers, json={"desc": desc}, timeout=15)
+        r.raise_for_status()
+
+    def set_cmd(self, token: str):
+        """Write a signed command ("svitlo-cmd=...") into the check description (full API key)."""
+        desc = with_line(self.check().get("desc", ""), "svitlo-cmd", token)
         r = self.http.post(self.base, headers=self.headers, json={"desc": desc}, timeout=15)
         r.raise_for_status()
 

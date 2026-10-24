@@ -26,4 +26,5 @@ extern bool rtcLostPower;  // DS3231 reported that its battery ran out (time was
 
 void sensorsBegin();  // I2C, DS3231 -> system time, BME280
 void sensorsLoop();   // reads the sensor every 30 s, writes NTP time to DS3231
+bool sensorsReprobe(); // look for the sensor again and read it now (begin() re-reads the calibration)
 String i2cScan();     // addresses found on the bus, for the status page
