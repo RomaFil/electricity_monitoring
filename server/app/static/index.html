@@ -330,11 +330,20 @@ function renderStatus(s) {
   $("updated").textContent = "оновлено " + fmtH.format(new Date());
 }
 
-const TICKS = (() => {
+// Hour ticks of one local day. Placed by real Kyiv time, not at fixed 24ths: the day DST ends has
+// 25 hours (and the spring one 23), and the bars are drawn in real seconds.
+const fmtHour = new Intl.DateTimeFormat("uk-UA", {timeZone: TZ, hour: "numeric", hourCycle: "h23"});
+function dayTicks(from, to) {
   let s = "";
-  for (let hr = 0; hr <= 24; hr += 4) s += `<i style="left:calc(${hr / 24 * 100}% - ${hr === 24 ? 2 : 0}px)"></i><em style="left:${hr / 24 * 100}%">${hr}</em>`;
+  const span = to - from;
+  for (let ts = from; ts <= to + 1; ts += 3600) {
+    const end = ts >= to - 1, hr = end ? 24 : +fmtHour.format(new Date(ts * 1000));
+    if (hr % 4 || (hr === 0 && ts > from)) continue;  // every 4 hours; the repeated autumn hour is 3, never a tick
+    const x = (ts - from) / span * 100;
+    s += `<i style="left:calc(${x}% - ${end ? 2 : 0}px)"></i><em style="left:${x}%">${hr}</em>`;
+  }
   return `<div class="ticks">${s}</div>`;
-})();
+}
 
 const hm = sec => {  // 5700 -> "1:35"
   if (sec == null) return "—";
@@ -361,7 +370,7 @@ function renderBars(r) {
                       : `<span style="color:var(--muted)">немає даних</span>`;
     if (d.planned_off_s != null) tot += `<br><span class="p">${d.planned_off_s ? "за графіком без світла<br>" + dur(d.planned_off_s) : "за графіком без відключень"}</span>`;
     return `<div class="wd">${WD[d.weekday]} <small>(${ddmm(d.date)})</small></div>
-            <div class="bar-wrap"><div class="bar">${bar}</div>${plan ? `<div class="plan">${plan}</div>` : ""}${TICKS}</div>
+            <div class="bar-wrap"><div class="bar">${bar}</div>${plan ? `<div class="plan">${plan}</div>` : ""}${dayTicks(d.from, d.to)}</div>
             <div class="tot">${tot}</div>`;
   }).join("");
   $("lg-nolink").style.display = source === "village" ? "" : "none";

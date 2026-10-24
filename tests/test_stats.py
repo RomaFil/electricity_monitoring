@@ -3,6 +3,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from _paths import *  # noqa: F401,F403
+from app import schedule
 from app.stats import daily, segments
 
 TZ = "Europe/Kyiv"
@@ -46,6 +47,20 @@ class DailyTest(unittest.TestCase):
         self.assertEqual(r["days"][0]["light_s"], 24 * H)
         self.assertEqual(r["summary"]["longest_light_s"], 24 * H)
 
+
+    def test_day_when_dst_ends_has_25_hours(self):
+        # 25.10.2026, 04:00 -> 03:00: the dashboard bars are in real seconds, so the day must be 25 h long
+        # and a planned 14:00-18:00 outage must still be 4 h at 14:00 wall time
+        tz = ZoneInfo("Europe/Kyiv")
+        now = datetime(2026, 10, 25, 23, 0, tzinfo=tz).timestamp()
+        hours = ["no" if 14 <= h < 18 else "yes" for h in range(24)]
+        plan = {"2026-10-25": schedule.intervals("2026-10-25", hours, "Europe/Kyiv")}
+        d = daily([], datetime(2026, 10, 20, tzinfo=tz).timestamp(), now, 1, "Europe/Kyiv", planned=plan)["days"][0]
+        self.assertEqual(d["to"] - d["from"], 25 * H)
+        self.assertEqual(d["planned_off_s"], 4 * H)
+        off = next(x for x in d["planned"] if x["kind"] == "off")
+        self.assertEqual(datetime.fromtimestamp(off["start"], tz).hour, 14)
+        self.assertEqual(d["light_s"], 24 * H)  # up to 23:00 wall time = 24 real hours
 
 if __name__ == "__main__":
     unittest.main()
