@@ -97,9 +97,13 @@ class Relay:
                 # diagnostics only: if this request fails, the pings above are still fine
                 self.next_diag = now + config.DIAG_BODY_EVERY_S
                 try:
-                    obs["diag"] = self.client.body(cursor)
-                    obs["diag_at"] = now
-                    db.add_sample(self.con, st.last_ping_ts, obs["diag"])
+                    body = self.client.body(cursor)
+                    if body:
+                        obs["diag"] = body
+                        obs["diag_at"] = now
+                        db.add_sample(self.con, st.last_ping_ts, body)
+                    else:  # Healthchecks sometimes has no body for a ping yet (25.10.2026 13:07): keep the last one
+                        log.info("ping %s has no body yet, keeping the previous diagnostics", cursor)
                 except Exception as exc:
                     log.warning("healthchecks diagnostics failed: %s", hide_uuid(exc))
             db.set_meta(self.con, "village_obs", obs)

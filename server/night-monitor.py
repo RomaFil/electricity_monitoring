@@ -33,6 +33,8 @@ def main():
             v = s["village"]
             d = (v.get("obs") or {}).get("diag") or {}
             cur = {k: d.get(k) for k in ("boot_count", "uptime_s", "rst", "fw", "gold", "trial", "heap", "blk", "rssi", "ota")}
+            if d.get("uptime_s") is None and prev:  # no diagnostics this minute: not a restart, keep the last ones
+                cur = {**prev, "status": v.get("status")}
             cur["status"] = v.get("status")
             cur["last_ping"] = time.strftime("%H:%M:%S", time.localtime(v["last_ping"])) if v.get("last_ping") else None
             notes = []
