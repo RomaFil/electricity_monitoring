@@ -522,7 +522,10 @@ function drawChart(opts) {
     tip.innerHTML = parts.join("<br>");
     tip.style.display = "block";
     const left = (svg.getScreenCTM().a * cx + svg.getScreenCTM().e) - rect.left;
-    tip.style.left = Math.min(rect.width - tip.offsetWidth - 4, Math.max(4, left + 12)) + "px";
+    // right of the cursor; near the right edge it flips to the left side, so it never covers the points
+    let tipX = left + 12;
+    if (tipX + tip.offsetWidth > rect.width - 4) tipX = left - 12 - tip.offsetWidth;
+    tip.style.left = Math.max(4, tipX) + "px";
     tip.style.top = "8px";
   };
   const leave = () => { g.innerHTML = ""; tip.style.display = "none"; };
