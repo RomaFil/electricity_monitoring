@@ -93,9 +93,21 @@ bool configSave(const Config &c) {
   // Write to a temp file first, then rename: a power cut mid-write keeps the old config.
   File f = LittleFS.open("/config.tmp", "w");
   if (!f) return false;
-  bool ok = serializeJson(doc, f) > 0;
+  size_t want = measureJson(doc);
+  bool ok = serializeJson(doc, f) == want;
   f.close();
-  return ok && LittleFS.rename("/config.tmp", CONFIG_FILE);
+  // only a complete file replaces the old one (a full file system writes a cut file and says nothing)
+  if (ok) {
+    File r = LittleFS.open("/config.tmp", "r");
+    ok = r && r.size() == want;
+    if (r) r.close();
+  }
+  if (!ok) {
+    LittleFS.remove("/config.tmp");
+    Serial.println(F("config: write failed, the old settings stay"));
+    return false;
+  }
+  return LittleFS.rename("/config.tmp", CONFIG_FILE);
 }
 
 void configErase() {

@@ -245,23 +245,51 @@ static void wifiLoop() {
   }
 }
 
-// FLASH held for RESET_HOLD_MS -> factory reset. The LCD counts down (if it is on).
+// Factory reset: hold FLASH 10 s, release, then press it once more within 5 s (the LCD says what to do).
+// Holding alone is not enough since 0.8.7: on 25.10.2026 the USB adapter kept GPIO0 low after a serial
+// port was closed and the board wiped its settings by itself. A stuck line cannot release and press again.
 static void resetButtonLoop() {
-  static uint32_t downMs = 0;
-  if (digitalRead(FLASH_PIN) != LOW) {
-    if (downMs) displayNote = "";
-    downMs = 0;
-    return;
-  }
+  static uint32_t downMs = 0, armedMs = 0;
+  static bool armed = false;
+  bool down = digitalRead(FLASH_PIN) == LOW;
   uint32_t now = millis();
-  if (!downMs) downMs = now | 1;
-  uint32_t held = now - downMs;
-  if (held < 1000) return;  // a short press does nothing
-  if (held < RESET_HOLD_MS) {
-    displayNote = String(F("Reset in ")) + ((RESET_HOLD_MS - held) / 1000 + 1) + F(" s");
+  if (armed) {
+    if (now - armedMs > 5000) {  // no second press: forget it
+      armed = false;
+      displayNote = "";
+    } else if (down && !downMs) {
+      downMs = now | 1;  // the confirming press
+    } else if (!down && downMs) {
+      downMs = 0;  // released after a short press: confirmed
+      goto doReset;
+    } else if (!down) {
+      displayNote = F("Press FLASH again");
+    }
     return;
   }
-  Serial.println(F("FLASH held 10 s: factory reset"));
+  if (!down) {
+    if (downMs) {
+      uint32_t held = now - downMs;
+      downMs = 0;
+      displayNote = "";
+      if (held >= RESET_HOLD_MS) {
+        armed = true;
+        armedMs = now;
+        displayNote = F("Press FLASH again");
+      }
+    }
+    return;
+  }
+  if (!downMs) downMs = now | 1;
+  {
+    uint32_t held = now - downMs;
+    if (held < 1000) return;  // a short press does nothing
+    displayNote = held < RESET_HOLD_MS ? String(F("Hold ")) + ((RESET_HOLD_MS - held) / 1000 + 1) + F(" s")
+                                       : String(F("Release FLASH"));
+  }
+  return;
+doReset:
+  Serial.println(F("FLASH held 10 s and pressed again: factory reset"));
   configErase();
   for (int i = 0; i < 20; i++) {  // 2 s of fast blinking as a sign
     digitalWrite(LED_PIN, i % 2 ? HIGH : LOW);

@@ -3,11 +3,9 @@
 #include <ArduinoJson.h>
 #include <ESP8266HTTPClient.h>
 #include <ESP8266WiFi.h>
-#include <WiFiClientSecureBearSSL.h>
 #include <memory>
 
 #include "state.h"
-#include "trust.h"
 
 Forecast fc;
 
@@ -31,20 +29,20 @@ static bool fetch() {
   const Config &c = st.cfg;
   char url[320];
   snprintf(url, sizeof(url),
-           "https://api.open-meteo.com/v1/forecast?latitude=%.4f&longitude=%.4f"
+           "http://api.open-meteo.com/v1/forecast?latitude=%.4f&longitude=%.4f"
            "&current=temperature_2m,weather_code,is_day"
            "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max"
            "&timezone=Europe%%2FKyiv&forecast_days=2",
            c.fcLat, c.fcLon);
 
-  std::unique_ptr<BearSSL::WiFiClientSecure> tls(new BearSSL::WiFiClientSecure());
-  tls->setTrustAnchors(trustLetsEncrypt());
-  if (timeValid()) tls->setX509Time(time(nullptr));
-  tls->setTimeout(15000);
+  // Plain HTTP on purpose: a weather forecast is no secret, and HTTPS to Open-Meteo was the memory peak
+  // of the board (Let's Encrypt chain with an RSA-4096 root) - every 30 minutes, during that request, the
+  // Wi-Fi stack ran out of memory and crashed (Exception 29 in ieee80211_setup_ratetable, night 25.10.2026).
+  std::unique_ptr<WiFiClient> tcp(new WiFiClient());
 
   HTTPClient http;
   http.useHTTP10(true);  // no chunked encoding, so the JSON can be parsed straight from the stream
-  if (!http.begin(*tls, url)) {
+  if (!http.begin(*tcp, url)) {
     fc.error = F("bad URL");
     return false;
   }

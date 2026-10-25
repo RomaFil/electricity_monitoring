@@ -11,4 +11,3 @@
 // start of setup() they sit at the bottom of the heap and leave the rest in one piece.
 void trustBegin();
 BearSSL::X509List *trustSectigo();      // hc-ping.com, healthchecks.io
-BearSSL::X509List *trustLetsEncrypt();  // api.open-meteo.com
