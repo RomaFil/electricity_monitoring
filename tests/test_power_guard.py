@@ -40,7 +40,7 @@ class Server:
     def __init__(self):
         self.up, self.events, self.samples = True, [], []
 
-    def send(self, payload):
+    def send(self, payload, timeout=None):
         if not self.up:
             raise OSError("network down")
         self.samples.append(payload["sample"])
@@ -84,6 +84,8 @@ class GuardTest(unittest.TestCase):
         self.clock = Clock()
         self.server = Server()
         self.run = Runner(self.clock)
+        self.link_at = 0  # the network card has its link from this moment on
+        self.renewed = []  # (WireGuard interface, time) of each peer renewal
         self.cfg = dict(DEFAULTS, STATE_DIR=str(root / "state"), AC_PATH=str(self.sys.ac_dir),
                         BAT_PATH=str(self.sys.bat_dir))
         self.g = self.make()
@@ -94,7 +96,8 @@ class GuardTest(unittest.TestCase):
     def make(self, **over):
         cfg = dict(self.cfg, **over)
         return Guard(cfg, Sysfs(cfg["AC_PATH"], cfg["BAT_PATH"]), Store(cfg["STATE_DIR"]), self.server,
-                     run=self.run, clock=self.clock, sleep=self.clock.sleep)
+                     run=self.run, clock=self.clock, sleep=self.clock.sleep, link=lambda: self.clock.t >= self.link_at,
+                     renew_wg=lambda iface: self.renewed.append((iface, self.clock.t)))
 
     def loop(self, seconds):
         end = self.clock.t + seconds
@@ -140,7 +143,6 @@ class GuardTest(unittest.TestCase):
         lost_at = self.clock.t
         self.loop(10 * 60 + 1)  # first sleep starts here
         self.assertEqual(self.rtcwake_calls()[0], ["rtcwake", "-m", "mem", "-s", "300"])
-        self.assertIn(["sync"], self.run.calls)
         # charger comes back during the 3rd sleep
         n = {"i": 0}
 
@@ -169,7 +171,7 @@ class GuardTest(unittest.TestCase):
         self.loop(40 * 60)
         gaps = [b - a for a, b in zip(starts, starts[1:])]
         self.assertGreaterEqual(len(gaps), 3)
-        self.assertTrue(all(g >= 300 + 8 for g in gaps), gaps)
+        self.assertTrue(all(g >= 300 + 4 for g in gaps), gaps)
 
     def test_low_battery_sleeps_early(self):
         self.g.start()
@@ -289,6 +291,74 @@ class GuardTest(unittest.TestCase):
         # one sleep (300 s) + at most NET_WAIT_S of waiting, then it sleeps again
         self.assertGreaterEqual(len(self.rtcwake_calls()), 1)
         self.assertLess(self.clock.t - t0, 10 * 60 + 1 + 300 + 30 + 60)
+
+    def wake_gaps(self, minutes=40):
+        """Seconds between the starts of consecutive sleeps while the charger is gone."""
+        starts = []
+        orig = self.run.__call__
+        self.g.run = lambda args: (starts.append(self.clock.t) if args[0] == "rtcwake" else None, orig(args))[1]
+        self.g.start()
+        self.sys.set(ac=False)
+        self.g.step()
+        self.loop(minutes * 60)
+        return [b - a for a, b in zip(starts, starts[1:])]
+
+    def test_short_wake_when_the_network_is_fine(self):
+        """Awake only MIN_AWAKE_S (4 s), not 8+ s: the report goes out as soon as the link is there."""
+        gaps = self.wake_gaps()
+        self.assertGreaterEqual(len(gaps), 3)
+        self.assertTrue(all(300 + 4 <= g < 300 + 5 for g in gaps), gaps)
+        starts = [e for e in self.server.events if e["type"] == "sleep_start"]
+        self.assertEqual(starts[1]["detail"]["awake_s"], 4)
+
+    def test_waits_for_the_link_before_the_first_send(self):
+        """A send before the link spoils the WireGuard handshake for 5 s, so the first try waits for the link."""
+        sent = []
+        orig = self.server.send
+        self.server.send = lambda p, timeout=None: (sent.append(self.clock.t), orig(p, timeout))[1]
+        woke = []
+
+        def hook():  # the link comes back 2.5 s after waking
+            woke.append(self.clock.t)
+            self.link_at = self.clock.t + 2.5
+        self.run.during_sleep = hook
+        self.g.start()
+        self.sys.set(ac=False)
+        self.g.step()
+        self.loop(10)  # 4 s settle after the start, then the first sleep
+        first = [t for t in sent if t >= woke[0]][0]
+        self.assertGreaterEqual(first, woke[0] + 2.5)
+        self.assertLess(first, woke[0] + 3)
+
+    def test_wireguard_peers_renewed_after_the_link_and_before_the_send(self):
+        sent = []
+        orig = self.server.send
+        self.server.send = lambda p, timeout=None: (sent.append(self.clock.t), orig(p, timeout))[1]
+        woke = []
+
+        def hook():
+            woke.append(self.clock.t)
+            self.link_at = self.clock.t + 2.5
+        self.run.during_sleep = hook
+        self.g = self.make(WG_IFACE="wg-svitlo")
+        self.g.start()
+        self.sys.set(ac=False)
+        self.g.step()
+        self.loop(10)
+        iface, t = self.renewed[0]
+        self.assertEqual(iface, "wg-svitlo")
+        self.assertGreaterEqual(t, woke[0] + 2.5)
+        self.assertLessEqual(t, [x for x in sent if x >= woke[0]][0])
+
+    def test_wireguard_untouched_without_wg_iface(self):
+        self.wake_gaps(15)
+        self.assertEqual(self.renewed, [])
+
+    def test_no_network_wake_is_bounded_by_net_wait(self):
+        self.server.up = False
+        gaps = self.wake_gaps()
+        self.assertGreaterEqual(len(gaps), 3)
+        self.assertTrue(all(g <= 300 + 8 + 1 for g in gaps), gaps)
 
 
 if __name__ == "__main__":

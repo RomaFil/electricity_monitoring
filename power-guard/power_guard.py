@@ -39,8 +39,9 @@ DEFAULTS = {
     "WAKE_INTERVAL": "300",
     "CRITICAL_PCT": "7",
     "KEEP_AWAKE": "false",
-    "NET_WAIT_S": "3",        # after waking: try to report for this long, then sleep (unsent events wait)
-    "MIN_AWAKE_S": "8",
+    "NET_WAIT_S": "8",        # after waking: try to report for this long, then sleep (unsent events wait)
+    "MIN_AWAKE_S": "4",
+    "WG_IFACE": "",           # WireGuard to the VPS: its peers are renewed after waking ("" = do not touch)
     "AC_PATH": "/sys/class/power_supply/ADP1",
     "BAT_PATH": "/sys/class/power_supply/BAT1",
     "STATE_DIR": "/var/lib/power-guard",
@@ -128,16 +129,42 @@ class Store:
         self._write_atomic(self.outbox_f, items)
 
 
+def link_up(net_dir="/sys/class/net") -> bool:
+    """True when any real network card (one with a 'device'; not a bridge, veth or wg) has a link.
+    True as well when there is nothing to check, so a missing /sys never blocks the reports."""
+    cards = [p for p in Path(net_dir).glob("*") if (p / "device").exists()]
+    for p in cards:
+        try:
+            if (p / "carrier").read_text().strip() == "1":
+                return True
+        except OSError:  # the card is down: reading carrier fails
+            pass
+    return not cards
+
+
 class Sender:
     def __init__(self, url, token, timeout=5):
         self.url, self.token, self.timeout = url, token, timeout
 
-    def send(self, payload) -> list:
+    def send(self, payload, timeout=None) -> list:
         """POST to the server; returns ids of accepted events. Raises on any failure."""
         req = urllib.request.Request(self.url, data=json.dumps(payload).encode(), method="POST",
                                      headers={"Content-Type": "application/json", "X-Device-Key": self.token})
-        with urllib.request.urlopen(req, timeout=self.timeout) as r:
+        with urllib.request.urlopen(req, timeout=timeout or self.timeout) as r:
             return json.loads(r.read()).get("acked", [])
+
+
+def renew_wg_peers(iface) -> bool:
+    """Replace the WireGuard peers of iface with fresh copies of themselves (same config, endpoints already
+    resolved, no DNS needed). A fresh peer sends its handshake at once instead of waiting out the 5 s
+    pause after a lost one. The config holds the private key: it only goes through the pipe."""
+    try:
+        conf = subprocess.run(["wg", "showconf", iface], capture_output=True, check=True, timeout=5).stdout
+        subprocess.run(["wg", "setconf", iface, "/dev/stdin"], input=conf, capture_output=True, check=True, timeout=5)
+        return True
+    except (OSError, subprocess.SubprocessError) as exc:
+        log.warning("cannot renew the WireGuard peers of %s: %s", iface, type(exc).__name__)
+        return False
 
 
 def run_cmd(args) -> int:
@@ -157,9 +184,11 @@ POWEROFF_RETRY_S = 300
 
 
 class Guard:
-    def __init__(self, cfg, sysfs, store, sender, run=run_cmd, clock=time.time, sleep=time.sleep):
+    def __init__(self, cfg, sysfs, store, sender, run=run_cmd, clock=time.time, sleep=time.sleep, link=link_up,
+                 renew_wg=renew_wg_peers):
         self.cfg, self.sysfs, self.store, self.sender = cfg, sysfs, store, sender
-        self.run, self.clock, self.sleep = run, clock, sleep
+        self.run, self.clock, self.sleep, self.link, self.renew_wg = run, clock, sleep, link, renew_wg
+        self.wg_iface = cfg.get("WG_IFACE", "")
         self.report_interval = float(cfg["REPORT_INTERVAL"])
         self.sleep_after = float(cfg["SLEEP_AFTER_MIN"]) * 60
         self.sleep_below = float(cfg["SLEEP_BELOW_PCT"])
@@ -168,8 +197,9 @@ class Guard:
         self.keep_awake = cfg["KEEP_AWAKE"].lower() in ("1", "true", "yes")
         self.net_wait = float(cfg["NET_WAIT_S"])
         # This Samsung reset itself twice when it was put back to sleep less than a second
-        # after waking (21.10.2026). Stay awake a little so the hardware settles first.
-        self.min_awake = float(cfg.get("MIN_AWAKE_S", "20"))
+        # after waking (21.10.2026). Stay awake a little so the hardware settles first
+        # (the disk and the network card are back ~2.5 s after waking).
+        self.min_awake = float(cfg["MIN_AWAKE_S"])
         self.state = NORMAL
         self.lost_at = None
         self.restore_precision = None  # seconds of uncertainty for the next ac_restored
@@ -178,6 +208,8 @@ class Guard:
         self.next_poweroff_try = 0.0
         self.backoff = 0.0
         self.woke_at = None
+        self.slept_until = None  # when the last sleep ended, for "awake_s" in the next sleep_start
+        self.net_ok = True
         self.last = {}
 
     # ---------- persistence ----------
@@ -196,16 +228,18 @@ class Guard:
         log.info("event %s %s", type_, detail)
         return e
 
-    def flush(self) -> bool:
+    def flush(self, timeout=None) -> bool:
         """Send the latest sample and all unsent events. Returns True on success."""
         out = self.store.outbox()[:SEND_MAX]  # oldest first; the rest goes with the next reports
         r = self.last
         sample = {"ts": self.clock(), "state": self.state, **{k: r.get(k) for k in ("ac", "battery", "status", "current_now")}}
         try:
-            acked = set(self.sender.send({"sample": sample, "events": out}))
+            acked = set(self.sender.send({"sample": sample, "events": out}, timeout=timeout))
         except Exception as exc:  # network down, server down, bad token...
             log.warning("send failed: %s", exc)
+            self.net_ok = False
             return False
+        self.net_ok = True
         if acked:
             self.store.save_outbox([e for e in self.store.outbox() if e["id"] not in acked])
         return True
@@ -285,15 +319,17 @@ class Guard:
         if precision:
             detail["precision_s"] = precision
         self.emit("ac_restored", ts=end, **detail)
-        self.state, self.lost_at, self.restore_precision = NORMAL, None, None
+        self.state, self.lost_at, self.restore_precision, self.slept_until = NORMAL, None, None, None
         self.next_report = 0
 
     def _sleep_cycle(self):
         before = self.last.get("battery")
         t0 = self.clock()
-        self.emit("sleep_start", wake_in=self.wake_interval)
-        self.flush()
-        self.run(["sync"])
+        extra = {"awake_s": round(t0 - self.slept_until, 1)} if self.slept_until else {}
+        self.emit("sleep_start", wake_in=self.wake_interval, **extra)
+        if self.net_ok:  # no network a moment ago: do not wait for it again, the event stays in the outbox
+            self.flush(timeout=2)
+        # No separate "sync": the kernel syncs the disks itself on the way to sleep (/sys/power/sync_on_suspend).
         self._save(sleeping=True)
         rc = self.run(["rtcwake", "-m", "mem", "-s", str(self.wake_interval)])
         t1 = self.clock()
@@ -304,7 +340,7 @@ class Guard:
             self.flush()
             return
         self.backoff = 0.0
-        self.woke_at = t1
+        self.woke_at = self.slept_until = t1
         self.last = r = self.sysfs.read()
         slept = t1 - t0
         detail = {"slept_s": round(slept), "battery_before": before}
@@ -314,10 +350,20 @@ class Guard:
         if r.get("ac"):
             # Charger came back sometime between t0 and t1; we only know it at wake-up.
             self._restored(t1, precision=slept)
-        # Wait for the network (WireGuard handshake) but never forever: no internet is normal here.
+        # Report, but never wait forever: no internet is normal here. Measured 26.10.2026: the network card
+        # has its link 2.6 s after waking, the router answers only ~5 s after waking. A lost WireGuard
+        # handshake is retried only 5 s later, so the tunnel came up at ~7.8 s. So: wait for the link, then
+        # give WireGuard fresh peers before every short try (a fresh peer handshakes at once): the report
+        # goes out as soon as the router lets it through.
         deadline = self.clock() + self.net_wait
-        while not self.flush() and self.clock() < deadline:
-            self.sleep(3)
+        while not self.link() and self.clock() < deadline:
+            self.sleep(0.2)
+        while self.clock() < deadline:
+            if self.wg_iface:
+                self.renew_wg(self.wg_iface)
+            if self.flush(timeout=max(0.3, min(0.8, deadline - self.clock()))):
+                break
+            self.sleep(0.2)
         self.next_report = self.clock() + self.report_interval
 
     def _poweroff(self):
