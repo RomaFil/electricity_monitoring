@@ -19,9 +19,16 @@ EVENT_MAP = {
 }
 
 
-def map_event(e: dict) -> dict | None:
-    """Convert one power-guard event into a row for the events table."""
+LAPTOP = "laptop"
+
+
+def map_event(e: dict, esp: bool = False) -> dict | None:
+    """Convert one power-guard event into a row for the events table.
+    esp=True: the home light is watched by the ESP, so the laptop's charger events must not count as outages
+    (the laptop is only a server then): they get source "laptop" and the types laptop_ac_lost / laptop_ac_restored."""
     type_ = EVENT_MAP.get(e.get("type"))
+    if esp and type_ in ("power_lost", "power_restored"):
+        type_ = "laptop_ac_lost" if type_ == "power_lost" else "laptop_ac_restored"
     if not type_ or not e.get("id") or e.get("ts") is None:
         return None
     detail = dict(e.get("detail") or {})
@@ -29,7 +36,7 @@ def map_event(e: dict) -> dict | None:
         if k in e:
             detail[k] = e[k]
     return {
-        "source": SOURCE, "type": type_, "ts": float(e["ts"]),
+        "source": LAPTOP if esp else SOURCE, "type": type_, "ts": float(e["ts"]),
         "start": detail.pop("start", None), "end": detail.pop("end", None),
         "detail": detail, "ext_id": f"pg:{e['id']}",
     }

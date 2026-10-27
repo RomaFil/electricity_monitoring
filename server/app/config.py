@@ -15,6 +15,10 @@ VILLAGE_THRESHOLD_S = _f("VILLAGE_THRESHOLD_S", 180)   # 3 missed pings of 60 s
 HC_API_BASE = os.environ.get("HC_API_BASE", "https://healthchecks.io")
 HC_API_KEY = os.environ.get("HC_API_KEY", "")
 HC_CHECK_UUID = os.environ.get("HC_CHECK_UUID", "")
+# The second ESP, at home (no sensors): watches the light there, like the village one. Its own Healthchecks
+# project; empty = off, then the home light comes from power-guard on the laptop as before.
+HC_HOME_API_KEY = os.environ.get("HC_HOME_API_KEY", "")
+HC_HOME_CHECK_UUID = os.environ.get("HC_HOME_CHECK_UUID", "")
 POLL_INTERVAL_S = _f("POLL_INTERVAL_S", 60)
 DIAG_BODY_EVERY_S = _f("DIAG_BODY_EVERY_S", 300)       # newest ping body: diagnostics + temperature sample
 
@@ -61,3 +65,7 @@ RATE_LIMIT_PER_MIN = int(os.environ.get("RATE_LIMIT_PER_MIN", 30))
 
 def hc_configured():
     return bool(HC_API_KEY and HC_CHECK_UUID)
+
+
+def home_esp_configured():
+    return bool(HC_HOME_API_KEY and HC_HOME_CHECK_UUID)

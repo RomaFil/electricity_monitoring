@@ -125,6 +125,42 @@ class ApiTest(unittest.TestCase):
             healthchecks.HealthchecksRelay.set_cmd = orig
             firmware._cache.update(at=0.0, ttl=0.0, data=None)
 
+    def test_home_esp_takes_over_the_home_light_and_the_laptop_becomes_a_server(self):
+        import time
+        from app import config, db, healthchecks
+        config.HC_HOME_API_KEY, config.HC_HOME_CHECK_UUID = "api2", "uuid2"
+        now = time.time()
+        # the laptop's charger events no longer count as outages of the home light
+        self.power(False, [{"id": "e1", "ts": now, "type": "ac_lost", "battery": 80}])
+        self.assertEqual([e["type"] for e in self.c.get("/api/events?technical=true").json() if e["type"].startswith("laptop")],
+                         ["laptop_ac_lost"])
+        con = db.connect()
+        con.isolation_level = None
+        db.set_meta(con, "home_state", {"status": "offline", "since": now - 600, "last_ping_ts": now - 600})
+        db.add_event(con, {"source": "home", "type": "power_lost", "ts": now - 600, "detail": {}})
+        con.close()
+        st = self.c.get("/api/status").json()
+        self.assertTrue(st["home_esp"])
+        self.assertEqual(st["home"]["status"], "offline")      # the ESP says there is no light
+        self.assertEqual(st["laptop"]["status"], "on_battery")  # the laptop is only a server with a battery
+        periods = self.c.get("/api/periods").json()["periods"]
+        self.assertEqual([(p["source"], p["kind"]) for p in periods], [("home", "outage")])
+        # a command for the home board goes to its own check, with its own key
+        sent = []
+        orig = healthchecks.HealthchecksRelay.set_cmd
+        healthchecks.HealthchecksRelay.set_cmd = lambda self, token: sent.append((self.base, self.headers, token))
+        config.ESP_CMD_KEY = "k" * 20
+        try:
+            r = self.c.post("/api/esp/command", json={"cmd": "reboot", "target": "home"},
+                            headers={"Origin": "http://testserver"})
+            self.assertEqual(r.status_code, 200, r.text)
+            self.assertTrue(sent[-1][0].endswith("/uuid2"))
+            self.assertEqual(sent[-1][1], {"X-Api-Key": "api2"})
+            self.assertEqual(self.c.get("/api/status").json()["home"]["esp_cmd_sent"]["cmd"], "reboot")
+            self.assertEqual(self.c.post("/api/esp/command", json={"cmd": "reboot", "target": "moon"}).status_code, 400)
+        finally:
+            healthchecks.HealthchecksRelay.set_cmd = orig
+
 
 if __name__ == "__main__":
     unittest.main()

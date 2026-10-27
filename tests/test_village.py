@@ -15,6 +15,15 @@ def feed(st, *pings):
 
 
 class VillageTest(unittest.TestCase):
+    def test_events_carry_the_source_of_the_board(self):
+        st, ev = on_ping(State(), Ping(1000), TH, "home")
+        self.assertEqual({e["source"] for e in ev}, {"home"})
+        st, ev = on_ping(st, Ping(2000, uptime_s=30), TH, "home")
+        self.assertEqual([(e["type"], e["source"]) for e in ev], [("power_restored", "home")])
+        _, ev = on_tick(st, 9000, True, TH, "home")
+        self.assertEqual([(e["type"], e["source"]) for e in ev], [("power_lost", "home")])
+        self.assertEqual(on_ping(State(), Ping(1000), TH)[1][0]["source"], "village")  # default unchanged
+
     def test_first_ping(self):
         st, ev = on_ping(State(), Ping(1000), TH)
         self.assertEqual(st.status, ONLINE)

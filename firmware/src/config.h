@@ -36,6 +36,8 @@ struct Config {
   // "AA:BB:CC:DD:EE:FF" = connect only to this access point (the main router), not to a repeater with the
   // same network name. If it is not seen for 5 minutes, any access point of the networks is used. "" = off.
   String bssidLock;
+  // true = the LEDs stay dark while everything works (only a problem is shown: no Wi-Fi, no heartbeat).
+  bool ledQuiet = true;
 
   bool hasNetworks() const;
 };

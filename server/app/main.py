@@ -86,7 +86,7 @@ def api_power(request: Request, body: Any = Body(None), x_device_key: str | None
         if not isinstance(e, dict) or not isinstance(e.get("id"), str):
             continue
         try:
-            row = home.map_event(e)
+            row = home.map_event(e, esp=config.home_esp_configured())
         except (TypeError, ValueError):
             row = None
         if row is not None:
@@ -132,6 +132,21 @@ def same_origin(request: Request):
         raise HTTPException(403, "request from a foreign page")
 
 
+def _board(body):
+    """The ESP a dashboard command is meant for: the village one (default) or the one at home.
+    Returns (target, relay credentials, meta key that asks the poller to confirm sooner)."""
+    target = body.get("target", "village") if isinstance(body, dict) else "village"
+    if target == "home":
+        if not config.home_esp_configured():
+            raise HTTPException(503, "the home ESP is not configured")
+        return target, (config.HC_HOME_API_KEY, config.HC_HOME_CHECK_UUID), "diag_soon_home"
+    if target != "village":
+        raise HTTPException(400, "target must be village or home")
+    if not config.hc_configured():
+        raise HTTPException(503, "Healthchecks is not configured")
+    return target, (config.HC_API_KEY, config.HC_CHECK_UUID), "diag_soon"
+
+
 @app.post("/api/esp/display")
 def api_esp_display(request: Request, body: Any = Body(None), c=Depends(con)):
     """Dashboard button: monitoring mode on the ESP (display off) or back to normal.
@@ -139,7 +154,7 @@ def api_esp_display(request: Request, body: Any = Body(None), c=Depends(con)):
     rate_limit(request)
     same_origin(request)
     if not config.hc_configured():
-        raise HTTPException(503, "Healthchecks is not configured")
+        raise HTTPException(503, "Healthchecks is not configured")  # the display exists only on the village board
     on = bool(body.get("on")) if isinstance(body, dict) else False
     now = int(time.time())
     import httpx
@@ -182,8 +197,7 @@ def api_esp_command(request: Request, body: Any = Body(None), c=Depends(con)):
         raise HTTPException(415, "JSON only")  # a cross-site HTML form cannot send JSON
     if not config.ESP_CMD_KEY:
         raise HTTPException(503, "ESP_CMD_KEY is not set on the server")
-    if not config.hc_configured():
-        raise HTTPException(503, "Healthchecks is not configured")
+    target, (api_key, uuid), soon_key = _board(body)
     kind = body.get("cmd") if isinstance(body, dict) else None
     if kind not in ESP_COMMANDS:
         raise HTTPException(400, "cmd must be one of " + ", ".join(ESP_COMMANDS))
@@ -201,13 +215,13 @@ def api_esp_command(request: Request, body: Any = Body(None), c=Depends(con)):
         now = int(time.time())
         sent = {"cmd": cmd, "at": now}
         try:
-            HealthchecksRelay(http, config.HC_API_BASE, config.HC_API_KEY, config.HC_CHECK_UUID).set_cmd(
+            HealthchecksRelay(http, config.HC_API_BASE, api_key, uuid).set_cmd(
                 sign_cmd(config.ESP_CMD_KEY, cmd, now))
             sent["ok"] = True
         except Exception as exc:
-            sent.update(ok=False, error=str(exc)[:200].replace(config.HC_CHECK_UUID, "<uuid>"))
-    db.set_meta(c, "esp_cmd_sent", sent)
-    db.set_meta(c, "diag_soon", True)
+            sent.update(ok=False, error=str(exc)[:200].replace(uuid, "<uuid>"))
+    db.set_meta(c, "esp_cmd_sent" if target == "village" else "esp_cmd_sent_home", sent)
+    db.set_meta(c, soon_key, True)
     if not sent["ok"]:
         raise HTTPException(502, sent["error"])
     return sent
@@ -226,21 +240,35 @@ def api_status(c=Depends(con)):
         "esp_cmd_sent": db.get_meta(c, "esp_cmd_sent"),
     }
     sample = c.execute("SELECT * FROM power_samples ORDER BY ts DESC LIMIT 1").fetchone()
-    ctrl = _last_event(c, "home", ("sleep_start", "sleep_end", "forced_poweroff", "guard_start"))
+    lsrc = home.LAPTOP if config.home_esp_configured() else "home"
+    ctrl = _last_event(c, lsrc, ("sleep_start", "sleep_end", "forced_poweroff", "guard_start"))
     h = home.status(dict(sample) if sample else None, ctrl, now, config.HOME_STALE_S, config.HOME_WAKE_INTERVAL_S)
-    lost = _last_event(c, "home", ("power_lost", "power_restored"))
-    if h.get("status") == "sleeping" and lost and lost["type"] == "power_lost":
+    lost = _last_event(c, lsrc, ("laptop_ac_lost", "laptop_ac_restored") if lsrc != "home"
+                       else ("power_lost", "power_restored"))
+    if h.get("status") == "sleeping" and lost and lost["type"] in ("power_lost", "laptop_ac_lost"):
         h["since"] = lost["ts"]  # without light since then; the last sleep_start is only the latest 5-minute nap
     if h.get("status") in ("online", "on_battery"):
-        h["since"] = lost["ts"] if lost else None
+        h["since"] = lost["ts"] if lost and lost["type"] in ("power_lost", "laptop_ac_lost") else (lost["ts"] if lost else None)
         # After a manual start, remind for a day that the server had been off.
-        gap = _last_event(c, "home", ("gap_unknown",))
+        gap = _last_event(c, lsrc, ("gap_unknown",))
         if gap and gap["detail"].get("reason") == "poweroff" and now - gap["ts"] < 86400:
             h["info"] = "Домашній сервер був вимкнений (розряд) і запущений вручну."
             h["info_start"], h["info_end"] = gap["start"], gap["end"]
+    out = {"now": now, "village": village, "home": h}
+    if config.home_esp_configured():
+        # The ESP at home watches the light; the laptop is only a server then (battery, sleep), shown separately.
+        hs = db.get_meta(c, "home_state", {}) or {}
+        esp = {
+            "status": hs.get("status", "never"), "since": hs.get("since"), "last_ping": hs.get("last_ping_ts"),
+            "obs": db.get_meta(c, "home_obs", {}), "esp_cmd_sent": db.get_meta(c, "esp_cmd_sent_home"),
+        }
+        laptop = dict(h)
+        out["laptop"] = laptop
+        out["home"] = esp
+        out["home_esp"] = True
     tick = db.get_meta(c, "poller_tick")
-    return {"now": now, "village": village, "home": h,
-            "poller_alive": bool(tick and now - tick < 90)}
+    out["poller_alive"] = bool(tick and now - tick < 90)
+    return out
 
 
 @app.get("/api/events")
@@ -278,12 +306,18 @@ def api_periods(hours: float = 24, c=Depends(con)):
     lost = _last_event(c, "home", ("power_lost", "power_restored"))
     if lost and lost["type"] == "power_lost":
         out.append({"source": "home", "kind": "outage", "start": lost["ts"], "end": None})
-    if h.get("status") in ("off", "no_data") and h.get("since"):
+    if st.get("home_esp"):
+        if h.get("status") == "unknown" and h.get("since"):
+            out.append({"source": "home", "kind": "unknown", "start": h["since"], "end": None})
+    elif h.get("status") in ("off", "no_data") and h.get("since"):
         out.append({"source": "home", "kind": "unknown", "start": h["since"], "end": None})
     # Before the first data point we know nothing: the dashboard paints that part grey.
+    # Home: the laptop's samples (until the ESP took over) or the ESP's first ping, whichever is older.
+    first_home = [x for x in (c.execute("SELECT MIN(ts) FROM power_samples").fetchone()[0],
+                              c.execute("SELECT MIN(ts) FROM pings WHERE source='home'").fetchone()[0]) if x is not None]
     first = {
         "village": c.execute("SELECT MIN(ts) FROM pings WHERE source='village'").fetchone()[0],
-        "home": c.execute("SELECT MIN(ts) FROM power_samples").fetchone()[0],
+        "home": min(first_home) if first_home else None,
     }
     return {"from": since, "to": now, "periods": out, "first": first}
 

@@ -1,4 +1,5 @@
 #include "forecast.h"
+#include "display.h"
 
 #include <ArduinoJson.h>
 #include <ESP8266HTTPClient.h>
@@ -91,7 +92,7 @@ void forecastLoop() {
   static uint32_t nextMs = FIRST_DELAY_MS;
   uint32_t now = millis();
   if (WiFi.status() != WL_CONNECTED || (int32_t)(now - nextMs) < 0) return;
-  if (!st.cfg.displayOn) return;  // monitoring mode: the forecast is only for the screen
+  if (!st.cfg.displayOn || !displayPresent()) return;  // the forecast is only for the screen (none on the home board)
   bool ok = fetch();
   if (ok) {
     fc.ok = true;

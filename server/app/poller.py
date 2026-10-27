@@ -32,17 +32,18 @@ def record_server_gap(con, now):
         log.warning("server was down %.0f s", now - last)
 
 
-def store_pings(con, pings):
+def store_pings(con, pings, source="village"):
     for p in pings:
-        db.add_sample(con, p.ts, p.detail or {})
-        con.execute("INSERT OR IGNORE INTO pings(source,ts,seq,detail) VALUES('village',?,?,?)",
-                    (p.ts, p.seq, json.dumps({**(p.detail or {}), "uptime_s": p.uptime_s,
-                                              "contiguous": p.contiguous}, ensure_ascii=False)))
+        if source == "village":  # temperature of the village; the home ESP has no sensors
+            db.add_sample(con, p.ts, p.detail or {})
+        con.execute("INSERT OR IGNORE INTO pings(source,ts,seq,detail) VALUES(?,?,?,?)",
+                    (source, p.ts, p.seq, json.dumps({**(p.detail or {}), "uptime_s": p.uptime_s,
+                                                      "contiguous": p.contiguous}, ensure_ascii=False)))
 
 
-def process(con, st, pings):
+def process(con, st, pings, source="village"):
     for p in pings:
-        st, ev = on_ping(st, p, config.VILLAGE_THRESHOLD_S)
+        st, ev = on_ping(st, p, config.VILLAGE_THRESHOLD_S, source)
         save_events(con, ev)
     return st
 
@@ -54,12 +55,17 @@ def hide_uuid(exc) -> str:
 
 
 class Relay:
-    """healthchecks-relay source."""
+    """healthchecks-relay source. Two of them can run: the village ESP and the ESP at home (own check)."""
 
-    def __init__(self, con):
+    def __init__(self, con, source="village", api_key=None, check_uuid=None):
         self.con = con
+        self.source = source
+        self.uuid = check_uuid if check_uuid is not None else config.HC_CHECK_UUID
+        # meta keys: the village ones keep their old names, so nothing stored changes
+        sfx = "" if source == "village" else "_" + source
+        self.k_cursor, self.k_check, self.k_obs = "hc_cursor" + sfx, "hc_check" + sfx, source + "_obs"
         self.client = HealthchecksRelay(httpx.Client(), config.HC_API_BASE,
-                                        config.HC_API_KEY, config.HC_CHECK_UUID)
+                                        api_key if api_key is not None else config.HC_API_KEY, self.uuid)
         self.next_poll = 0.0
         self.next_diag = 0.0
         self.check_new_uuid()
@@ -67,32 +73,33 @@ class Relay:
     def check_new_uuid(self):
         """hc_cursor is a ping number inside one check. A new check (new UUID) starts again from n=1,
         so the old cursor would hide all its pings and the village would look dark forever."""
-        tag = hashlib.sha256(config.HC_CHECK_UUID.encode()).hexdigest()[:16]  # not the UUID itself
-        old = db.get_meta(self.con, "hc_check")
+        tag = hashlib.sha256(self.uuid.encode()).hexdigest()[:16]  # not the UUID itself
+        old = db.get_meta(self.con, self.k_check)
         if old and old != tag:
-            log.warning("Healthchecks check UUID changed: starting its ping history from scratch")
-            db.set_meta(self.con, "hc_cursor", None)
-        db.set_meta(self.con, "hc_check", tag)
+            log.warning("Healthchecks check UUID changed (%s): starting its ping history from scratch", self.source)
+            db.set_meta(self.con, self.k_cursor, None)
+        db.set_meta(self.con, self.k_check, tag)
 
     def step(self, st, now):
-        obs = db.get_meta(self.con, "village_obs", {})
+        obs = db.get_meta(self.con, self.k_obs, {})
         if now >= self.next_poll:
             self.next_poll = now + config.POLL_INTERVAL_S
-            cursor = db.get_meta(self.con, "hc_cursor")
+            cursor = db.get_meta(self.con, self.k_cursor)
             try:
                 pings, cursor, complete = self.client.poll(cursor, st.last_ping_ts, config.VILLAGE_THRESHOLD_S)
-                store_pings(self.con, pings)
-                st = process(self.con, st, pings)
-                db.set_meta(self.con, "hc_cursor", cursor)
+                store_pings(self.con, pings, self.source)
+                st = process(self.con, st, pings, self.source)
+                db.set_meta(self.con, self.k_cursor, cursor)
                 # keep the last ESP diagnostics (IP, display, RSSI): they are refreshed only every few minutes
                 obs = {**obs, "ok": True, "complete": complete, "last_ok": now, "error": None}
-                if db.get_meta(self.con, "diag_soon"):  # a dashboard command was sent: confirm it sooner
-                    db.set_meta(self.con, "diag_soon", False)
+                soon = "diag_soon" if self.source == "village" else "diag_soon_" + self.source
+                if db.get_meta(self.con, soon):  # a dashboard command was sent: confirm it sooner
+                    db.set_meta(self.con, soon, False)
                     self.next_diag = 0
             except Exception as exc:  # network, 4xx/5xx, bad json
-                log.warning("healthchecks poll failed: %s", hide_uuid(exc))
-                obs = {**obs, "ok": False, "complete": False, "error": hide_uuid(exc)[:200]}
-            cursor = db.get_meta(self.con, "hc_cursor")
+                log.warning("healthchecks poll failed (%s): %s", self.source, self.hide(exc))
+                obs = {**obs, "ok": False, "complete": False, "error": self.hide(exc)[:200]}
+            cursor = db.get_meta(self.con, self.k_cursor)
             if obs.get("ok") and now >= self.next_diag and cursor:
                 # diagnostics only: if this request fails, the pings above are still fine
                 self.next_diag = now + config.DIAG_BODY_EVERY_S
@@ -101,14 +108,19 @@ class Relay:
                     if body:
                         obs["diag"] = body
                         obs["diag_at"] = now
-                        db.add_sample(self.con, st.last_ping_ts, body)
+                        if self.source == "village":
+                            db.add_sample(self.con, st.last_ping_ts, body)
                     else:  # Healthchecks sometimes has no body for a ping yet (25.10.2026 13:07): keep the last one
                         log.info("ping %s has no body yet, keeping the previous diagnostics", cursor)
                 except Exception as exc:
-                    log.warning("healthchecks diagnostics failed: %s", hide_uuid(exc))
-            db.set_meta(self.con, "village_obs", obs)
+                    log.warning("healthchecks diagnostics failed (%s): %s", self.source, self.hide(exc))
+            db.set_meta(self.con, self.k_obs, obs)
         fresh = obs.get("last_ok") and now - obs["last_ok"] < 2.5 * config.POLL_INTERVAL_S
         return st, bool(obs.get("ok") and obs.get("complete") and fresh)
+
+    def hide(self, exc) -> str:
+        text = str(exc)
+        return text.replace(self.uuid, "<uuid>") if self.uuid else text
 
 
 class Direct:
@@ -223,7 +235,10 @@ def main():
         mode = "off"
     db.set_meta(con, "village_mode", mode)
     source = Relay(con) if mode == "healthchecks" else Direct(con, now) if mode == "direct" else None
-    log.info("poller started, village source: %s", mode)
+    home_esp = (Relay(con, "home", config.HC_HOME_API_KEY, config.HC_HOME_CHECK_UUID)
+                if config.home_esp_configured() else None)
+    db.set_meta(con, "home_esp_mode", bool(home_esp))
+    log.info("poller started, village source: %s, home ESP: %s", mode, bool(home_esp))
     schedules = Schedules(con) if config.schedule_targets() else None
     outdoor_temp = Outdoor(con) if config.OUTDOOR_LAT else None
 
@@ -235,6 +250,12 @@ def main():
             st, ev = on_tick(st, now, complete, config.VILLAGE_THRESHOLD_S)
             save_events(con, ev)
             db.set_meta(con, "village_state", st.to_dict())
+        if home_esp:
+            hst = State.from_dict(db.get_meta(con, "home_state"))
+            hst, complete = home_esp.step(hst, now)
+            hst, ev = on_tick(hst, now, complete, config.VILLAGE_THRESHOLD_S, "home")
+            save_events(con, ev)
+            db.set_meta(con, "home_state", hst.to_dict())
         if schedules:
             schedules.step(now)
         if outdoor_temp:

@@ -46,12 +46,13 @@ class State:
         return cls(**{k: d.get(k) for k in ("status", "since", "last_ping_ts", "last_seq")}) if d else cls()
 
 
-def _event(type_, ts, start=None, end=None, **detail):
-    return {"source": SOURCE, "type": type_, "ts": ts, "start": start, "end": end, "detail": detail}
+def _event(type_, ts, start=None, end=None, source=SOURCE, **detail):
+    return {"source": source, "type": type_, "ts": ts, "start": start, "end": end, "detail": detail}
 
 
-def on_ping(st: State, p: Ping, threshold: float):
-    """Process one received ping. Returns (new_state, events)."""
+def on_ping(st: State, p: Ping, threshold: float, source: str = SOURCE):
+    """Process one received ping. Returns (new_state, events). `source` labels the events:
+    "village", or "home" for the ESP that watches the light at home."""
     if st.last_ping_ts is not None:
         old_ts = p.ts <= st.last_ping_ts
         old_seq = p.seq is not None and st.last_seq is not None and p.seq <= st.last_seq
@@ -60,7 +61,7 @@ def on_ping(st: State, p: Ping, threshold: float):
 
     if st.last_ping_ts is None:
         new = State(ONLINE, p.ts, p.ts, p.seq)
-        return new, [_event("first_ping", p.ts)]
+        return new, [_event("first_ping", p.ts, source=source)]
 
     events = []
     gap = p.ts - st.last_ping_ts
@@ -70,24 +71,24 @@ def on_ping(st: State, p: Ping, threshold: float):
     if gap > threshold:
         start = st.last_ping_ts
         if not p.contiguous:
-            events.append(_event("gap_unknown", p.ts, start, p.ts, reason="pings may be missing"))
+            events.append(_event("gap_unknown", p.ts, start, p.ts, source=source, reason="pings may be missing"))
         elif p.uptime_s is not None and not rebooted:
             # ESP kept running the whole time: light was on, only the link was down.
-            events.append(_event("link_restored", p.ts, start, p.ts, duration=p.ts - start))
+            events.append(_event("link_restored", p.ts, start, p.ts, source=source, duration=p.ts - start))
         else:
             end = p.ts - p.uptime_s if rebooted else p.ts
             end = max(end, start)
-            events.append(_event("power_restored", end, start, end,
+            events.append(_event("power_restored", end, start, end, source=source,
                                  duration=end - start, precise_end=rebooted))
         since = events[-1]["end"]
     elif rebooted:
         # Short blink (shorter than the threshold) or an ESP crash: informational only.
-        events.append(_event("esp_reboot", p.ts, uptime_s=p.uptime_s))
+        events.append(_event("esp_reboot", p.ts, source=source, uptime_s=p.uptime_s))
 
     return State(ONLINE, since, p.ts, p.seq if p.seq is not None else st.last_seq), events
 
 
-def on_tick(st: State, now: float, complete: bool, threshold: float):
+def on_tick(st: State, now: float, complete: bool, threshold: float, source: str = SOURCE):
     """Clock tick. `complete` = we are sure no ping arrived since the last one
     (relay: API answered and n_pings did not grow; direct: server was up the whole time).
     Returns (new_state, events)."""
@@ -96,8 +97,8 @@ def on_tick(st: State, now: float, complete: bool, threshold: float):
     if complete and st.status in (ONLINE, UNKNOWN):
         late = st.status == UNKNOWN
         return (State(OFFLINE, st.last_ping_ts, st.last_ping_ts, st.last_seq),
-                [_event("power_lost", st.last_ping_ts, late=late)])
+                [_event("power_lost", st.last_ping_ts, source=source, late=late)])
     if not complete and st.status == ONLINE:
         return (State(UNKNOWN, st.last_ping_ts, st.last_ping_ts, st.last_seq),
-                [_event("no_data", st.last_ping_ts)])
+                [_event("no_data", st.last_ping_ts, source=source)])
     return st, []

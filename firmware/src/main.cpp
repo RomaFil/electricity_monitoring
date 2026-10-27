@@ -8,7 +8,7 @@
 //   fast blinking (5 per second)  - no Wi-Fi
 //   double blink every 2 s        - only the setup access point SVITLO-LOCAL is on
 //   blinking once a second        - Wi-Fi OK, but the last heartbeat failed
-//   short flash every 5 s         - everything works
+//   short flash every 5 s         - everything works (only when "ledQuiet" is off; by default it stays dark)
 //
 // Factory reset = hold the FLASH button for 10 s while the board runs. It used to be
 // "4 quick power cycles", but a flickering grid (auto-reclosing after an accident) can do
@@ -38,7 +38,8 @@ static const char *HOSTNAME = "svitlo-local";
 static const char *AP_SSID = "SVITLO-LOCAL";
 // Kyiv time with summer time; the display shows local time, everything else uses UTC.
 static const char *TZ_KYIV = "EET-2EEST,M3.5.0/3,M10.5.0/4";
-static const int LED_PIN = 2;  // GPIO2, LED on the ESP-12 module, lit when LOW
+static const int LED_PIN = 2;   // GPIO2, LED on the ESP-12 module, lit when LOW
+static const int LED2_PIN = 16;  // GPIO16, the second LED of the NodeMCU board (near the USB socket), lit when LOW
 static const uint32_t AP_AFTER_MS = 60000;      // no Wi-Fi for this long -> turn the setup AP on
 static const uint32_t AP_OFF_AFTER_MS = 120000; // connected for this long and nobody on the AP -> AP off
 static const uint32_t LOCK_GRACE_MS = 300000;   // locked access point not seen this long -> any one of the networks
@@ -89,7 +90,7 @@ static void ledLoop() {
   } else if (st.lastAttemptMs && st.failsInRow) {
     on = (t / 500) % 2;  // 1 Hz
   } else {
-    on = t % 5000 < 50;  // short flash
+    on = !st.cfg.ledQuiet && t % 5000 < 50;  // short flash (not in the quiet mode: then everything is dark)
   }
   digitalWrite(LED_PIN, on ? LOW : HIGH);
 }
@@ -303,6 +304,8 @@ doReset:
 void setup() {
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, HIGH);
+  pinMode(LED2_PIN, OUTPUT);
+  digitalWrite(LED2_PIN, HIGH);  // this one never lights
   Serial.begin(115200);
   Serial.println(F("\n\nSvitlo-Local ESP " FW_VERSION));
 

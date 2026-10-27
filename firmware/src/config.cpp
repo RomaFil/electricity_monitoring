@@ -59,6 +59,7 @@ bool configLoad(Config &c) {
   c.cmdTs = doc["cts"] | (uint32_t)0;
   c.cmdResult = doc["cres"] | "";
   c.bssidLock = doc["bssid"] | "";
+  c.ledQuiet = doc["ledq"] | true;
   if (c.intervalS < 30 || c.intervalS > 3600) c.intervalS = 60;
   return true;
 }
@@ -90,6 +91,7 @@ bool configSave(const Config &c) {
   doc["cts"] = c.cmdTs;
   doc["cres"] = c.cmdResult;
   doc["bssid"] = c.bssidLock;
+  doc["ledq"] = c.ledQuiet;
   // Write to a temp file first, then rename: a power cut mid-write keeps the old config.
   File f = LittleFS.open("/config.tmp", "w");
   if (!f) return false;

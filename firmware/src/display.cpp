@@ -285,6 +285,10 @@ static void describe() {
   displayInfo = buf;
 }
 
+bool displayPresent() {
+  return addr != 0;
+}
+
 void displayBegin() {
   lcdBus();
   if (findLcd()) {

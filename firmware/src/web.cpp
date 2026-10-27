@@ -217,6 +217,9 @@ static void handleSettingsGet() {
          "<label>BSSID</label><input name=bssid value=\"");
   b += esc(st.cfg.bssidLock);
   b += F("\"></div>");
+  b += F("<div class=card><h2>Світлодіоди</h2><label><input type=checkbox name=ledq value=1");
+  b += st.cfg.ledQuiet ? F(" checked") : F("");
+  b += F("> не блимати, поки все працює (лампочки показують лише проблему: немає Wi-Fi чи heartbeat)</label></div>");
   b += F("<div class=card><h2>Сервер</h2><label>URL (https://hc-ping.com/&lt;UUID&gt; або http://сервер/api/heartbeat)</label>"
          "<input name=url value=\"");
   b += esc(c.url);
@@ -307,6 +310,7 @@ static void handleSettingsPost() {
     c.bssidLock.trim();
     c.bssidLock.toUpperCase();
   }
+  c.ledQuiet = server.hasArg("ledq");
   if (server.hasArg("hoff")) c.humOffset = constrain(server.arg("hoff").toFloat(), -30.0f, 30.0f);
 
   String err;
