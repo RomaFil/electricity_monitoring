@@ -217,6 +217,21 @@ static bool connectBest() {
     WiFi.begin(c[i].ssid.c_str(), net.pass.c_str(), c[i].ch, c[i].bssid);
     if (waitConnected(15000)) return true;
   }
+  // A hidden network (SSID not broadcast) never shows up in a scan: try the configured names that were not
+  // seen, by name only. At most once a minute, so a board out of range does not stall the loop all the time.
+  static uint32_t lastHiddenTry = 0;
+  if (!lastHiddenTry || now - lastHiddenTry > 60000) {
+    lastHiddenTry = now | 1;
+    for (const auto &net : st.cfg.nets) {
+      if (!net.ssid.length()) continue;
+      bool seenInScan = false;
+      for (int i = 0; i < nc; i++) seenInScan |= c[i].ssid == net.ssid;
+      if (seenInScan) continue;
+      Serial.printf("Wi-Fi: %s is not in the scan (hidden network?), trying by name\n", net.ssid.c_str());
+      WiFi.begin(net.ssid.c_str(), net.pass.c_str());
+      if (waitConnected(15000)) return true;
+    }
+  }
   return false;
 }
 
