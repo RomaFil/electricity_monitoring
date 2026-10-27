@@ -41,6 +41,8 @@ DEFAULTS = {
     "KEEP_AWAKE": "false",
     "NET_WAIT_S": "8",        # after waking: try to report for this long, then sleep (unsent events wait)
     "MIN_AWAKE_S": "4",
+    "SLEEP_MODE": "mem",      # mem = suspend to RAM (~3 W); off = power off, the RTC alarm starts it (~0.3 W)
+    "OFF_NET_WAIT_S": "120",  # after a start from the alarm: how long to wait for the network before reporting
     "DISK_DETACH_CMD": "",    # before every sleep on battery (idempotent), e.g. takes a failing disk away
     "DISK_ATTACH_CMD": "",    # after the charger is back and at the start of power-guard (idempotent)
     "WG_IFACE": "",           # WireGuard to the VPS: its peers are renewed after waking ("" = do not touch)
@@ -201,6 +203,8 @@ class Guard:
         self.critical = float(cfg["CRITICAL_PCT"])
         self.keep_awake = cfg["KEEP_AWAKE"].lower() in ("1", "true", "yes")
         self.net_wait = float(cfg["NET_WAIT_S"])
+        self.off_mode = cfg.get("SLEEP_MODE", "mem").lower() == "off"
+        self.off_net_wait = float(cfg.get("OFF_NET_WAIT_S", "120"))
         # This Samsung reset itself twice when it was put back to sleep less than a second
         # after waking (21.10.2026). Stay awake a little so the hardware settles first
         # (the disk and the network card are back ~2.5 s after waking).
@@ -264,6 +268,10 @@ class Guard:
             if prev.get("state") == OFF:
                 self.emit("unknown_gap", start=prev.get("poweroff_at") or prev.get("last_alive"), end=now, reason="poweroff")
                 self.restore_precision = gap
+            elif prev.get("off_sleep") and gap <= self.wake_interval + 300:
+                # started by the RTC alarm after "rtcwake -m off": the plain case of this mode, not a crash
+                self.emit("sleep_end", slept_s=round(gap), battery_before=prev.get("battery"), boot=True)
+                self.restore_precision = gap
             elif gap > (self.wake_interval if prev.get("sleeping") else 0) + 3 * self.report_interval:
                 reason = "shutdown" if prev.get("clean_exit") else "crash"
                 self.emit("unknown_gap", start=prev.get("last_alive"), end=now, reason=reason)
@@ -304,7 +312,8 @@ class Guard:
                 if settle > 0:
                     return settle  # just woke up: let the hardware settle before the next sleep
                 self._sleep_cycle()
-                self._save()
+                if not self.off_mode:  # in off mode the saved state must keep "off_sleep" for the next start
+                    self._save()
                 return 0  # check again right after waking
         elif self.state == OFF and r["ac"]:
             # the poweroff command was accepted but the laptop is still running and the charger is back
@@ -338,11 +347,17 @@ class Guard:
         t0 = self.clock()
         extra = {"awake_s": round(t0 - self.slept_until, 1)} if self.slept_until else {}
         self.emit("sleep_start", wake_in=self.wake_interval, **extra)
-        if self.net_ok:  # no network a moment ago: do not wait for it again, the event stays in the outbox
+        if self.off_mode:
+            self._report_when_network(self.off_net_wait)  # the one report of this start: it has to get through
+        elif self.net_ok:  # no network a moment ago: do not wait for it again, the event stays in the outbox
             self.flush(timeout=2)
         # No separate "sync": the kernel syncs the disks itself on the way to sleep (/sys/power/sync_on_suspend).
-        self._save(sleeping=True)
-        rc = self.run(["rtcwake", "-m", "mem", "-s", str(self.wake_interval)])
+        self._save(sleeping=True, off_sleep=self.off_mode, battery=before)
+        rc = self.run(["rtcwake", "-m", "off" if self.off_mode else "mem", "-s", str(self.wake_interval)])
+        if self.off_mode and rc == 0:
+            # the machine is powering off right now; if this process still runs after 2 minutes, it did not
+            self.sleep(120)
+            return  # (the saved state still says off_sleep; the next step refreshes it)
         t1 = self.clock()
         if rc != 0:
             self.backoff = min(max(60.0, self.backoff * 2), 900.0)
@@ -361,12 +376,15 @@ class Guard:
         if r.get("ac"):
             # Charger came back sometime between t0 and t1; we only know it at wake-up.
             self._restored(t1, precision=slept)
-        # Report, but never wait forever: no internet is normal here. Measured 26.10.2026: the network card
-        # has its link 2.6 s after waking, the router answers only ~5 s after waking. A lost WireGuard
-        # handshake is retried only 5 s later, so the tunnel came up at ~7.8 s. So: wait for the link, then
-        # give WireGuard fresh peers before every short try (a fresh peer handshakes at once): the report
-        # goes out as soon as the router lets it through.
-        deadline = self.clock() + self.net_wait
+        self._report_when_network(self.net_wait)
+
+    def _report_when_network(self, wait):
+        """Report, but never wait longer than `wait`: no internet is normal here. Measured 26.10.2026: the
+        network card has its link 2.6 s after waking, the router answers only ~5 s after waking. A lost
+        WireGuard handshake is retried only 5 s later, so the tunnel came up at ~7.8 s. So: wait for the link,
+        then give WireGuard fresh peers before every short try (a fresh peer handshakes at once): the report
+        goes out as soon as the router lets it through."""
+        deadline = self.clock() + wait
         while not self.link() and self.clock() < deadline:
             self.sleep(0.2)
         while self.clock() < deadline:

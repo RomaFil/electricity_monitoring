@@ -373,6 +373,26 @@ class GuardTest(unittest.TestCase):
         self.assertEqual([c[0] for c in self.run.calls].count("/x/attach.sh"), 2)
         self.assertEqual(self.g.state, NORMAL)
 
+    def test_off_mode_reports_then_powers_off_and_a_start_from_the_alarm_is_not_a_crash(self):
+        self.g = self.make(SLEEP_MODE="off", WAKE_INTERVAL="1800")
+        self.g.start()
+        self.sys.set(ac=False)
+        self.g.step()
+        self.g.step()  # ac_lost
+        self.clock.t += 5  # MIN_AWAKE_S after the start
+        self.g.step()  # the first cycle: report, then rtcwake -m off
+        self.assertEqual(self.rtcwake_calls()[0], ["rtcwake", "-m", "off", "-s", "1800"])
+        self.assertIn("sleep_start", self.server.types())  # reported before the power went off
+        # the fake rtcwake already moved the clock by the 1800 s of the sleep; the laptop boots ~1-2 min later
+        g2 = self.make(SLEEP_MODE="off", WAKE_INTERVAL="1800")
+        g2.start()
+        self.assertNotIn("unknown_gap", self.server.types() + [e["type"] for e in Store(self.cfg["STATE_DIR"]).outbox()])
+        self.sys.set(ac=True)
+        g2.step()
+        restored = [e for e in Store(self.cfg["STATE_DIR"]).outbox() + self.server.events if e["type"] == "ac_restored"]
+        self.assertTrue(restored)
+        self.assertGreater(restored[0]["detail"]["precision_s"], 1800)
+
     def test_no_disk_commands_when_not_configured(self):
         self.wake_gaps(15)
         self.assertFalse([c for c in self.run.calls if "detach" in c[0] or "attach" in c[0]])
