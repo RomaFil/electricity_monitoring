@@ -41,6 +41,8 @@ DEFAULTS = {
     "KEEP_AWAKE": "false",
     "NET_WAIT_S": "8",        # after waking: try to report for this long, then sleep (unsent events wait)
     "MIN_AWAKE_S": "4",
+    "DISK_DETACH_CMD": "",    # before every sleep on battery (idempotent), e.g. takes a failing disk away
+    "DISK_ATTACH_CMD": "",    # after the charger is back and at the start of power-guard (idempotent)
     "WG_IFACE": "",           # WireGuard to the VPS: its peers are renewed after waking ("" = do not touch)
     "AC_PATH": "/sys/class/power_supply/ADP1",
     "BAT_PATH": "/sys/class/power_supply/BAT1",
@@ -189,6 +191,9 @@ class Guard:
         self.cfg, self.sysfs, self.store, self.sender = cfg, sysfs, store, sender
         self.run, self.clock, self.sleep, self.link, self.renew_wg = run, clock, sleep, link, renew_wg
         self.wg_iface = cfg.get("WG_IFACE", "")
+        self.detach_cmd = cfg.get("DISK_DETACH_CMD", "").split()
+        self.attach_cmd = cfg.get("DISK_ATTACH_CMD", "").split()
+        self.attach_needed = bool(self.attach_cmd)  # at the start too: a crash may have left the disk detached
         self.report_interval = float(cfg["REPORT_INTERVAL"])
         self.sleep_after = float(cfg["SLEEP_AFTER_MIN"]) * 60
         self.sleep_below = float(cfg["SLEEP_BELOW_PCT"])
@@ -309,6 +314,9 @@ class Guard:
         if now >= self.next_report:
             self.flush()
             self.next_report = now + self.report_interval
+        if self.attach_needed and self.state == NORMAL:
+            self.attach_needed = False
+            self.run(self.attach_cmd)  # after the report: it may take a minute
         return self.report_interval
 
     def _restored(self, end, precision=None):
@@ -320,10 +328,13 @@ class Guard:
             detail["precision_s"] = precision
         self.emit("ac_restored", ts=end, **detail)
         self.state, self.lost_at, self.restore_precision, self.slept_until = NORMAL, None, None, None
+        self.attach_needed = bool(self.attach_cmd)
         self.next_report = 0
 
     def _sleep_cycle(self):
         before = self.last.get("battery")
+        if self.detach_cmd:
+            self.run(self.detach_cmd)  # may take a minute (stops the NAS); the laptop is awake meanwhile
         t0 = self.clock()
         extra = {"awake_s": round(t0 - self.slept_until, 1)} if self.slept_until else {}
         self.emit("sleep_start", wake_in=self.wake_interval, **extra)

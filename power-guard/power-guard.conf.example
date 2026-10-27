@@ -24,6 +24,11 @@ MIN_AWAKE_S=4
 # Тунель WireGuard до VPS. Після пробудження його пір перестворюється, щоб handshake пішов одразу
 # (інакше WireGuard чекає 5 с після спроби, загубленої до появи зв'язку). Порожньо = не чіпати.
 WG_IFACE=wg-svitlo
+# Диск NAS (sdb) почав видавати помилки читання, і ноутбук гинув під час пробудження від диска.
+# Перед сном на батареї диск відключається (зупиняється контейнер NAS, пул експортується),
+# коли світло повернулось, — підключається назад. Порожньо = не чіпати.
+DISK_DETACH_CMD=/usr/local/lib/power-guard/disk-detach.sh
+DISK_ATTACH_CMD=/usr/local/lib/power-guard/disk-attach.sh
 
 AC_PATH=/sys/class/power_supply/ADP1
 BAT_PATH=/sys/class/power_supply/BAT1

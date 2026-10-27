@@ -6,6 +6,7 @@ cd "$(dirname "$0")"
 
 install -d -m 755 /usr/local/lib/power-guard
 install -m 755 power_guard.py /usr/local/lib/power-guard/power_guard.py
+install -m 755 disk-detach.sh disk-attach.sh /usr/local/lib/power-guard/
 install -d -m 700 /var/lib/power-guard
 if [ ! -f /etc/power-guard.conf ]; then
     install -m 600 power-guard.conf.example /etc/power-guard.conf

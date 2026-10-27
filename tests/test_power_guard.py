@@ -354,6 +354,29 @@ class GuardTest(unittest.TestCase):
         self.wake_gaps(15)
         self.assertEqual(self.renewed, [])
 
+    def test_disk_detached_before_each_sleep_and_attached_after_the_charger_is_back(self):
+        self.g = self.make(DISK_DETACH_CMD="/x/detach.sh", DISK_ATTACH_CMD="/x/attach.sh")
+        self.g.start()
+        self.g.step()  # NORMAL: attach at the start (a crash may have left the disk detached)
+        self.assertEqual(self.run.calls.count(["/x/attach.sh"]), 1)
+        self.sys.set(ac=False)
+        self.g.step()
+        self.loop(11 * 60)
+        calls = [c[0] for c in self.run.calls]
+        self.assertGreaterEqual(calls.count("/x/detach.sh"), 2)
+        for i, c in enumerate(calls):
+            if c == "rtcwake":
+                self.assertEqual(calls[i - 1], "/x/detach.sh")  # the call right before rtcwake
+        self.assertEqual(calls.count("/x/attach.sh"), 1)  # not while on battery
+        self.sys.set(ac=True)
+        self.loop(6 * 60)
+        self.assertEqual([c[0] for c in self.run.calls].count("/x/attach.sh"), 2)
+        self.assertEqual(self.g.state, NORMAL)
+
+    def test_no_disk_commands_when_not_configured(self):
+        self.wake_gaps(15)
+        self.assertFalse([c for c in self.run.calls if "detach" in c[0] or "attach" in c[0]])
+
     def test_no_network_wake_is_bounded_by_net_wait(self):
         self.server.up = False
         gaps = self.wake_gaps()
