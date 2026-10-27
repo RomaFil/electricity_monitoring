@@ -345,7 +345,7 @@ function renderStatus(s) {
     const d = h.obs && h.obs.diag;
     if (d && d.rssi != null) hk.push(`ESP вдома: RSSI ${esc(d.rssi)} dBm, прошивка ${esc(d.fw || "?")}, перезапусків ${esc(d.boot_count ?? "?")}` +
       (d.rst ? `, останній запуск: ${String(d.rst).startsWith("Exception") ? `<span class="err">${esc(d.rst)}</span>` : esc(d.rst)}` : ""));
-    if (d && d.ip) hk.push(`Сторінка ESP: <a href="http://${esc(d.ip)}/" target="_blank">${esc(d.ip)}</a> <span class="u">(лише з домашньої Wi-Fi)</span>`);
+    if (d && d.ip) hk.push(`Сторінка ESP: <a href="http://${esc(d.ip)}/" target="_blank">${esc(d.ip)}</a> або <a href="http://svitlo-local.local/" target="_blank">svitlo-local.local</a> <span class="u">(відкривається лише з домашньої Wi-Fi)</span>`);
     $("h-kv").innerHTML = hk.join("<br>");
     const lk = [`<b>Сервер (ноутбук):</b> ${esc(LAPTOP_TEXT[lp.status] || lp.status)}`];
     if (lp.battery != null) lk.push(`батарея: <b>${Math.round(lp.battery)}%</b> ${esc(lp.bat_status || "")}`);
