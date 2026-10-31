@@ -436,9 +436,9 @@ function renderBars(r) {
   $("sched-info").innerHTML = info;
 }
 
-// No hover on phones, so the native title tooltips never show there: a tap (or click on desktop) on a
-// bar or on the schedule strip pops the same text up near the finger. It hides itself after a few
-// seconds, on a tap somewhere else or on scroll.
+// No hover on phones, so native title tooltips never show there. One custom popup serves both: a tap or
+// click on a bar or on the schedule strip, or hovering it with a mouse, shows the text near the pointer. It
+// hides itself after a few seconds, on a tap somewhere else, when the pointer leaves the bars, or on scroll.
 const KND = {light: "світло було", outage: "без світла", unknown: "немає даних",
              nolink: "світло було, не було зв'язку"};
 const barTip = document.createElement("div");
@@ -446,11 +446,11 @@ barTip.className = "m-tip";
 document.body.appendChild(barTip);
 let barTipTimer = null, barTapFrom = null, lastBarTapAt = 0;
 const hideBarTip = () => { barTip.style.display = "none"; clearTimeout(barTipTimer); };
-  // data-tip holds the same texts the native title used to (native tooltips are gone: they doubled the popup)
-  const barTipText = span => {
-    const plan = span.parentElement.classList.contains("plan");
-    return (plan ? "" : (KND[span.className] ? KND[span.className] + " " : "")) + (span.dataset.tip || "");
-  };
+// data-tip holds the texts the native title used to (native tooltips are gone: they doubled the popup)
+const barTipText = span => {
+  const plan = span.parentElement.classList.contains("plan");
+  return (plan ? "" : (KND[span.className] ? KND[span.className] + " " : "")) + (span.dataset.tip || "");
+};
 const showBarTip = (text, cx, cy) => {
   barTip.textContent = text;
   barTip.style.display = "block";
@@ -481,12 +481,15 @@ document.addEventListener("click", ev => {
   const span = tappedBar(ev);
   if (span) showBarTip(barTipText(span), ev.clientX, ev.clientY); else hideBarTip();
 });
-// desktop hover replaces the removed native tooltips; a touch tap also synthesizes mouseover, guarded above
-document.addEventListener("mouseover", ev => {
+// desktop hover replaces the removed native tooltips; moving along a bar keeps the popup alive (each move
+// re-arms the 6 s timer). A touch tap also synthesizes mouseover/mousemove, guarded by lastBarTapAt.
+const hoverBarTip = ev => {
   if (Date.now() - lastBarTapAt < 900) return;
   const span = tappedBar(ev);
   if (span) showBarTip(barTipText(span), ev.clientX, ev.clientY); else hideBarTip();
-});
+};
+document.addEventListener("mouseover", hoverBarTip);
+document.addEventListener("mousemove", hoverBarTip);
 window.addEventListener("scroll", hideBarTip, {passive: true, capture: true});
 
 // One row per day, for both places: hours without light in fact and by the DTEK schedule.
