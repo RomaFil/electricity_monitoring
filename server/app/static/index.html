@@ -404,12 +404,14 @@ function renderBars(r) {
     const span = d.to - d.from;
     const bar = d.segments.map(x => {
       const title = `${fmtH.format(new Date(x.start * 1000))} – ${fmtH.format(new Date(x.end * 1000))} (${dur(x.end - x.start)})`;
-      return `<span class="${x.kind}" title="${title}" style="left:${(x.start - d.from) / span * 100}%;width:${(x.end - x.start) / span * 100}%"></span>`;
+      // data-tip, not title: a native browser tooltip would double the custom popup
+      return `<span class="${x.kind}" data-tip="${title}" style="left:${(x.start - d.from) / span * 100}%;width:${(x.end - x.start) / span * 100}%"></span>`;
     }).join("");
     const plan = d.planned.map(x => {
       const title = `за графіком: ${{light: "світло є", off: "світла немає", maybe: "можливе відключення"}[x.kind]}, ` +
         `${fmtH.format(new Date(x.start * 1000))} – ${fmtH.format(new Date(x.end * 1000))}`;
-      return `<span class="${x.kind}" title="${title}" style="left:${(x.start - d.from) / span * 100}%;width:${(x.end - x.start) / span * 100}%"></span>`;
+      // data-tip, not title: a native browser tooltip would double the custom popup
+      return `<span class="${x.kind}" data-tip="${title}" style="left:${(x.start - d.from) / span * 100}%;width:${(x.end - x.start) / span * 100}%"></span>`;
     }).join("");
     const hasData = d.light_s + d.outage_s > 0;
     let tot = hasData ? `<span class="l">${dur(d.light_s)}</span><br><span class="o">${d.outage_s ? "без світла " + dur(d.outage_s) : "без відключень"}</span>`
@@ -444,10 +446,11 @@ barTip.className = "m-tip";
 document.body.appendChild(barTip);
 let barTipTimer = null, barTapFrom = null, lastBarTapAt = 0;
 const hideBarTip = () => { barTip.style.display = "none"; clearTimeout(barTipTimer); };
-const barTipText = span => {
-  const plan = span.parentElement.classList.contains("plan");
-  return (plan ? "" : (KND[span.className] ? KND[span.className] + " " : "")) + (span.getAttribute("title") || "");
-};
+  // data-tip holds the same texts the native title used to (native tooltips are gone: they doubled the popup)
+  const barTipText = span => {
+    const plan = span.parentElement.classList.contains("plan");
+    return (plan ? "" : (KND[span.className] ? KND[span.className] + " " : "")) + (span.dataset.tip || "");
+  };
 const showBarTip = (text, cx, cy) => {
   barTip.textContent = text;
   barTip.style.display = "block";
@@ -475,6 +478,12 @@ document.addEventListener("touchend", ev => {
 }, {passive: true, capture: true});
 document.addEventListener("click", ev => {
   if (Date.now() - lastBarTapAt < 900) return;  // the touch above already handled the tap
+  const span = tappedBar(ev);
+  if (span) showBarTip(barTipText(span), ev.clientX, ev.clientY); else hideBarTip();
+});
+// desktop hover replaces the removed native tooltips; a touch tap also synthesizes mouseover, guarded above
+document.addEventListener("mouseover", ev => {
+  if (Date.now() - lastBarTapAt < 900) return;
   const span = tappedBar(ev);
   if (span) showBarTip(barTipText(span), ev.clientX, ev.clientY); else hideBarTip();
 });
