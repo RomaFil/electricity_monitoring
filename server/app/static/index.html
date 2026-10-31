@@ -116,6 +116,8 @@ label.chk { font-size: 13px; color: var(--muted); display: flex; gap: 6px; align
 #v-esp .u, #v-ctl .u { color: var(--muted); }
 
 @media (max-width: 600px) {
+  /* the DTEK strip is decoratively thin, but a finger needs something to land on */
+  .plan { height: 14px; margin-top: 5px; }
   /* the day label and its totals share a row, the bar goes full width below; the totals wrap inside their
      own column instead of running into the label (27.10.2026: they overlapped on a phone) */
   .week { grid-template-columns: auto 1fr; grid-auto-flow: row dense; column-gap: 10px; }
