@@ -465,9 +465,10 @@ document.addEventListener("touchstart", ev => {
 document.addEventListener("touchend", ev => {
   const t = ev.changedTouches[0], span = tappedBar(ev);
   lastBarTapAt = Date.now();
-  // a scroll or a long press is not a tap: only still-and-short touches pop the tip up
+  // a scroll or a drag is not a tap: the finger must stay still; a slow deliberate press up to 1.5 s
+  // still counts, so the tip reads long enough before the finger comes up
   if (!barTapFrom || Math.hypot(t.clientX - barTapFrom.x, t.clientY - barTapFrom.y) > 12
-      || Date.now() - barTapFrom.at > 700) return;
+      || Date.now() - barTapFrom.at > 1500) return;
   if (span) showBarTip(barTipText(span), t.clientX, t.clientY); else hideBarTip();
 }, {passive: true, capture: true});
 document.addEventListener("click", ev => {
