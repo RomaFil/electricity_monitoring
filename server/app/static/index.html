@@ -39,6 +39,9 @@ h2 { font-size: 16px; margin: 0; }
 
 /* weekly chart */
 .week { display: grid; grid-template-columns: 82px 1fr 140px; column-gap: 12px; row-gap: 4px; align-items: center; }
+.m-tip { position: fixed; z-index: 9; background: #26262c; border: 1px solid var(--line); border-radius: 8px;
+  padding: 8px 10px; font-size: 13px; line-height: 1.45; color: var(--text); max-width: 280px; display: none;
+  box-shadow: 0 4px 14px rgba(0,0,0,.4); pointer-events: none; }
 .wd { font-weight: 600; font-size: 14px; white-space: nowrap; }
 .wd small { color: var(--muted); font-weight: 400; }
 .bar-wrap { padding: 4px 0 0; }
@@ -428,6 +431,51 @@ function renderBars(r) {
   }
   $("sched-info").innerHTML = info;
 }
+
+// No hover on phones, so the native title tooltips never show there: a tap (or click on desktop) on a
+// bar or on the schedule strip pops the same text up near the finger. It hides itself after a few
+// seconds, on a tap somewhere else or on scroll.
+const KND = {light: "світло було", outage: "без світла", unknown: "немає даних",
+             nolink: "світло було, не було зв'язку"};
+const barTip = document.createElement("div");
+barTip.className = "m-tip";
+document.body.appendChild(barTip);
+let barTipTimer = null, barTapFrom = null, lastBarTapAt = 0;
+const hideBarTip = () => { barTip.style.display = "none"; clearTimeout(barTipTimer); };
+const barTipText = span => {
+  const plan = span.parentElement.classList.contains("plan");
+  return (plan ? "" : (KND[span.className] ? KND[span.className] + " " : "")) + (span.getAttribute("title") || "");
+};
+const showBarTip = (text, cx, cy) => {
+  barTip.textContent = text;
+  barTip.style.display = "block";
+  barTip.style.left = Math.max(4, Math.min(cx + 10, window.innerWidth - barTip.offsetWidth - 4)) + "px";
+  barTip.style.top = Math.max(4, Math.min(cy - barTip.offsetHeight - 10, window.innerHeight - barTip.offsetHeight - 4)) + "px";
+  clearTimeout(barTipTimer);
+  barTipTimer = setTimeout(hideBarTip, 6000);
+};
+const tappedBar = ev => {
+  const el = ev.target;
+  return el && el.closest ? el.closest(".bar > span, .plan > span") : null;
+};
+document.addEventListener("touchstart", ev => {
+  const t0 = ev.touches[0];
+  barTapFrom = {x: t0.clientX, y: t0.clientY, at: Date.now()};
+}, {passive: true, capture: true});
+document.addEventListener("touchend", ev => {
+  const t = ev.changedTouches[0], span = tappedBar(ev);
+  lastBarTapAt = Date.now();
+  // a scroll or a long press is not a tap: only still-and-short touches pop the tip up
+  if (!barTapFrom || Math.hypot(t.clientX - barTapFrom.x, t.clientY - barTapFrom.y) > 12
+      || Date.now() - barTapFrom.at > 700) return;
+  if (span) showBarTip(barTipText(span), t.clientX, t.clientY); else hideBarTip();
+}, {passive: true, capture: true});
+document.addEventListener("click", ev => {
+  if (Date.now() - lastBarTapAt < 900) return;  // the touch above already handled the tap
+  const span = tappedBar(ev);
+  if (span) showBarTip(barTipText(span), ev.clientX, ev.clientY); else hideBarTip();
+});
+window.addEventListener("scroll", hideBarTip, {passive: true, capture: true});
 
 // One row per day, for both places: hours without light in fact and by the DTEK schedule.
 function renderTable(home, village) {
