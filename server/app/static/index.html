@@ -484,8 +484,10 @@ function timeTicks(from, to) {
   return out;
 }
 
-// opts: {box, from, to, rows, series: [{key, cls, color, axis: "l"|"r", min, max, unit, name, digits, gap, noAxis}],
+// opts: {box, from, to, rows, series: [{key, cls, color, axis: "l"|"r", min, max, unit, name, digits, gap, noAxis, step}],
 //        bands, gap, extra(row, values)}; noAxis = shares the scale of another series, no own labels;
+//        step = staircase that holds the last known value between samples (battery: rare outage
+//        samples stay connected, no breaks);
 //        alsoKeys = more fields of the same rows to pass to extra (pressure comes with the room samples)
 function drawChart(opts) {
   const box = $(opts.box), svg = box.querySelector("svg"), tip = box.querySelector(".tip");
@@ -510,6 +512,21 @@ function drawChart(opts) {
   }
   const rows = opts.rows;
   opts.series.forEach((sr, k) => {
+    if (sr.step) {
+      // Staircase through every sample: the line holds the last known value between samples and
+      // steps exactly at each new sample. So even rare points (the sleeping laptop reports every
+      // 5–30 min during an outage) stay connected: the line runs through the shaded window without
+      // breaks or a drop to zero, and over a long hole it is simply one horizontal stretch.
+      let d = "", prevPt = null;
+      for (const r0 of rows) {
+        if (r0[sr.key] == null) continue;
+        const px = x(r0.ts).toFixed(1), py = ys[k](r0[sr.key]).toFixed(1);
+        d += prevPt ? `L${px},${prevPt.y} L${px},${py}` : `M${px},${py}`;
+        prevPt = {y: py};
+      }
+      if (prevPt) s += `<path class="${sr.cls}" d="${d}"/>`;
+      return;
+    }
     let seg = [], prev = null;
     const flush = () => { if (seg.length > 1) s += `<polyline class="${sr.cls}" points="${seg.join(" ")}"/>`; seg = []; };
     for (const r0 of rows) {
@@ -580,7 +597,7 @@ function renderBattery(rows, from, to) {
     if ((r.ac || i === rows.length - 1) && startOff != null) { bands.push([startOff, r.ts]); startOff = null; }
   });
   drawChart({box: "bat-box", from, to, rows, bands, gap: 900,
-    series: [{key: "battery", cls: "bat", color: "var(--accent)", axis: "l", min: 0, max: 100, unit: "%", name: "заряд"}],
+    series: [{key: "battery", cls: "bat", color: "var(--accent)", axis: "l", min: 0, max: 100, unit: "%", name: "заряд", step: true}],
     extra: r => [r.ac ? "зарядка підключена" : `<span style="color:var(--off)">без зарядки</span>`]});
 }
 
