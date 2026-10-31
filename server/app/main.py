@@ -365,7 +365,12 @@ def api_battery(hours: float = 24, c=Depends(con)):
     since = now - max(1.0, min(hours, 24 * 31)) * 3600
     rows = c.execute("SELECT ts, ac, battery FROM power_samples WHERE ts>=? ORDER BY ts", (since,)).fetchall()
     step = max(1, len(rows) // 600)  # at most ~600 points for the chart
-    return [dict(r) for r in rows[::step]]
+    # On charger the laptop reports every 30 s ([::step] is fine for that density), but while
+    # sleeping it wakes every 30 min == 60 records, a multiple of the 24 h step (4): all outage
+    # samples then share one slice residue and the plain slice can drop the whole outage window.
+    # Every charger-off sample (and the newest one) is therefore kept unthinned.
+    return [dict(r) for i, r in enumerate(rows)
+            if i % step == 0 or not r["ac"] or i == len(rows) - 1]
 
 
 @app.get("/")

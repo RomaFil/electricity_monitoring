@@ -54,6 +54,26 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(periods[0]["source"], "home")
         self.assertEqual(len(self.c.get("/api/battery").json()), 2)
 
+    def test_battery_thinning_keeps_every_outage_sample(self):
+        """A sleeping laptop reports exactly every step-th row when densely sampled (30 min == 60 records
+        of 30 s), so the plain [::step] slice could drop the whole outage window; every ac=0 row is kept."""
+        import time
+        from app import db
+        con = db.connect()
+        con.isolation_level = None
+        base = int(time.time()) // 30 * 30
+        for i in range(0, 24 * 120 + 1):  # 2881 dense on-charger samples, 30 s apart -> step 4
+            con.execute("INSERT OR REPLACE INTO power_samples(ts,ac,battery) VALUES(?,1,80.0)",
+                        (base - 86400 + i * 30,))
+        outage = [base - 43200 + 60 + k * 1800 for k in range(16)]  # an unlucky slice residue
+        for ts in outage:
+            con.execute("INSERT OR REPLACE INTO power_samples(ts,ac,battery) VALUES(?,0,45.0)", (ts,))
+        con.commit()
+        con.close()
+        out = self.c.get("/api/battery?hours=24").json()
+        self.assertEqual([r["ts"] for r in out if r["ac"] == 0], outage)
+        self.assertLessEqual(len(out), 760)  # still thinned to ~600 points for the chart
+
     def test_bad_power_body_is_400_and_unknown_events_are_acked(self):
         h = {"X-Device-Key": TOKEN}
         self.assertEqual(self.c.post("/api/power", headers=h, json=[1, 2]).status_code, 400)
