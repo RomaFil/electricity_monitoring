@@ -122,6 +122,15 @@ label.chk { font-size: 13px; color: var(--muted); display: flex; gap: 6px; align
 .mst .mm b.o { color: var(--off); }
 .mst .mm small { color: var(--muted); font-size: 12px; }
 .mst .un { margin-top: 8px; font-size: 12px; color: var(--muted); }
+.mst .un b { color: var(--text); font-weight: 600; }
+.mst .cmp { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); }
+.mst .cmp-h { font-size: 13px; font-weight: 600; }
+.mst .cmp-h small { font-weight: 400; color: var(--muted); font-size: 12px; }
+.mst .cg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px 10px; margin-top: 6px; }
+.mst .cg small { color: var(--muted); font-size: 12px; }
+.mst .cg .cl { grid-column: 1 / -1; font-size: 12px; color: var(--muted); margin-top: 6px; }
+.mst .cg b { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.mst .cg b.o { color: var(--off); } .mst .cg b.l { color: var(--on); }
 .more { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
 .more .btn2 { margin-top: 0; }
 #v-esp a { color: var(--accent); }
@@ -760,11 +769,31 @@ function renderMonthStats(meta) {
   $("m-label").dataset.m = meta.month; $("m-label").dataset.cur = meta.this_month;
   $("m-prev").disabled = meta.month <= meta.first_month;
   $("m-next").disabled = meta.month >= meta.this_month;
+  // "2д 23год" instead of "2д 23год 13хв" where the comparison table is narrow
+  const durC = sec => sec >= 86400 ? dur(Math.floor(sec / 3600) * 3600) : dur(sec);
+  const diff = (real, plan, moreIsBad) => {  // real minus plan, red when it is worse than the schedule
+    const d = real - plan;
+    if (Math.abs(d) < 60) return `<b>—</b>`;
+    return `<b class="${(d > 0) === moreIsBad ? "o" : "l"}">${d > 0 ? "+" : "−"}${durC(Math.abs(d))}</b>`;
+  };
+  const cmp = (s, c) => !c ? "" : `<div class="cmp"><div class="cmp-h">Порівняння з графіком ДТЕК ` +
+    `<small>(${c.days} з ${c.days_elapsed} дн., де графік збережено)</small></div><div class="cg">` +
+    `<small>було</small><small>за графіком</small><small>різниця</small>` +
+    `<span class="cl">Без світла</span><b>${durC(c.actual_off_s)}</b><b>${durC(c.plan_off_s)}</b>${diff(c.actual_off_s, c.plan_off_s, true)}` +
+    `<span class="cl">Зі світлом</span><b>${durC(c.actual_light_s)}</b><b>${durC(c.plan_light_s)}</b>${diff(c.actual_light_s, c.plan_light_s, false)}` +
+    `</div><div class="un">` +
+    (c.match_share == null ? "" : `збіг з графіком: <b>${Math.round(c.match_share * 100)}%</b> часу · `) +
+    `відключень, що почались у межах ±30 хв від графіка: <b>${c.on_schedule_30} з ${c.outages}</b>` +
+    (c.plan_maybe_s >= 60 ? ` · «можливі» за графіком: ${durC(c.plan_maybe_s)}` : "") +
+    (c.actual_unknown_s >= 300 ? ` · без даних: ${durC(c.actual_unknown_s)}` : "") + `</div></div>`;
   const tile = (name, s) => `<div class="mst"><h3>${name}</h3><div class="mm">` +
     `<div><b class="${s.outages ? "o" : ""}">${s.outages}</b><small>відключень</small></div>` +
     `<div><b>${dur(s.outage_s)}</b><small>без світла разом</small></div>` +
+    `<div><b>${dur(s.light_s)}</b><small>зі світлом разом</small></div>` +
+    `<div><b>${s.light_share == null ? "—" : (s.light_share * 100).toFixed(1).replace(".", ",") + " %"}</b><small>частка часу зі світлом</small></div>` +
     `<div><b>${s.avg_s == null ? "—" : dur(s.avg_s)}</b><small>середня тривалість</small></div>` +
     `<div><b>${s.outages ? dur(s.longest_s) : "—"}</b><small>найдовше</small></div></div>` +
+    cmp(s, s.schedule) +
     (s.unknown_s >= 60 ? `<div class="un">немає даних: ${dur(s.unknown_s)}</div>` : "") + `</div>`;
   $("mstats").innerHTML = tile("Село", meta.stats.village) + tile("Дім", meta.stats.home);
   $("mnote").textContent = "Відключення, що тривало через межу місяців, ділиться опівночі.";

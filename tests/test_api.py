@@ -1,6 +1,7 @@
 """API smoke test with a temporary database. Needs fastapi + httpx (skipped otherwise)."""
 import hashlib
 import importlib
+import json
 import os
 import tempfile
 import unittest
@@ -240,7 +241,21 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(v["longest_s"], 2 * 3600)
         self.assertEqual(v["avg_s"], 1.5 * 3600)
         self.assertEqual((h["outages"], h["outage_s"], h["longest_s"]), (1, 3600, 3600))
-        jan = self.c.get("/api/events/month?month=2026-01").json()
+        self.assertGreater(v["light_s"], 0)
+        self.assertAlmostEqual(v["light_s"] + v["outage_s"] + v["unknown_s"], m["to"] - m["from"], delta=1)
+        self.assertIsNone(v["schedule"])  # no DTEK schedule saved yet
+        # a saved DTEK schedule for Feb 10 (village): off 12:00-13:00, the same hour as the real outage
+        con = db.connect()
+        con.isolation_level = None
+        con.execute("INSERT INTO schedule_days(source,date,hours,grp) VALUES('village','2026-02-10',?,'GPV4.2')",
+                    (json.dumps(["no" if hh == 12 else "yes" for hh in range(24)]),))
+        con.close()
+        sc = self.c.get("/api/events/month?month=2026-02").json()["stats"]["village"]["schedule"]
+        self.assertEqual((sc["days"], sc["days_elapsed"]), (1, 28))
+        self.assertEqual((sc["plan_off_s"], sc["actual_off_s"]), (3600, 3600))
+        self.assertEqual((sc["match_share"], sc["outages"], sc["on_schedule_30"]), (1.0, 1, 1))
+        self.assertIsNone(self.c.get("/api/events/month?month=2026-02").json()["stats"]["home"]["schedule"])
+        jan =self.c.get("/api/events/month?month=2026-01").json()
         self.assertEqual(jan["stats"]["village"]["outage_s"], 2 * 3600)  # 22:00 -> 00:00
         self.assertEqual(jan["counts"], {"main": 1, "all": 1})
         # a month without events: zeros, no division by zero
