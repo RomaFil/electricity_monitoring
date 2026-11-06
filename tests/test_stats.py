@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo
 
 from _paths import *  # noqa: F401,F403
 from app import schedule
-from app.stats import daily, segments
+from app.stats import daily, outage_summary, schedule_compare, segments
 
 TZ = "Europe/Kyiv"
 H = 3600
@@ -61,6 +61,43 @@ class DailyTest(unittest.TestCase):
         off = next(x for x in d["planned"] if x["kind"] == "off")
         self.assertEqual(datetime.fromtimestamp(off["start"], tz).hour, 14)
         self.assertEqual(d["light_s"], 24 * H)  # up to 23:00 wall time = 24 real hours
+
+
+class MonthScheduleTest(unittest.TestCase):
+    """Real light against the DTEK schedule: only days that have a saved schedule take part."""
+
+    def setUp(self):
+        self.lo, self.hi = ts(10, 0), ts(12, 0)
+        periods = [{"kind": "outage", "start": ts(10, 10, 30), "end": ts(10, 12, 30)},   # day with a schedule
+                   {"kind": "outage", "start": ts(11, 8), "end": ts(11, 9)}]             # day without one
+        self.segs = segments(periods, 0, self.lo, self.hi)
+        hours = ["no" if 10 <= h < 12 else "yes" for h in range(24)]
+        self.planned = {"2026-10-10": schedule.intervals("2026-10-10", hours, TZ)}
+
+    def test_summary_has_light_and_share(self):
+        s = outage_summary(self.segs)
+        self.assertEqual((s["outages"], s["outage_s"], s["light_s"]), (2, 3 * H, 45 * H))
+        self.assertAlmostEqual(s["light_share"], 45 / 48)
+        self.assertIsNone(outage_summary([])["light_share"])
+
+    def test_only_scheduled_days_are_compared(self):
+        c = schedule_compare(self.segs, self.planned, self.lo, self.hi, self.hi, TZ)
+        self.assertEqual((c["days"], c["days_elapsed"]), (1, 2))
+        self.assertEqual((c["actual_off_s"], c["actual_light_s"]), (2 * H, 22 * H))  # Oct 11 is left out
+        self.assertEqual((c["plan_off_s"], c["plan_light_s"], c["plan_maybe_s"]), (2 * H, 22 * H, 0))
+        self.assertAlmostEqual(c["match_share"], 23 / 24)  # 30 min early on both ends
+        self.assertEqual((c["outages"], c["on_schedule_30"]), (1, 1))
+
+    def test_no_schedule_means_none(self):
+        self.assertIsNone(schedule_compare(self.segs, {}, self.lo, self.hi, self.hi, TZ))
+        self.assertIsNone(schedule_compare(self.segs, self.planned, self.hi, self.lo, self.lo, TZ))
+
+    def test_today_is_compared_only_up_to_now(self):
+        now = ts(10, 11)  # the planned 10:00-12:00 outage is half over
+        segs = segments([{"kind": "outage", "start": ts(10, 10), "end": None}], 0, self.lo, now)
+        c = schedule_compare(segs, self.planned, self.lo, self.hi, now, TZ)
+        self.assertEqual((c["actual_off_s"], c["plan_off_s"], c["actual_light_s"]), (H, H, 10 * H))
+
 
 if __name__ == "__main__":
     unittest.main()

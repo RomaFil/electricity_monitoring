@@ -90,11 +90,49 @@ def on_schedule(actual, planned, tolerance):
 
 
 def outage_summary(segs):
-    """Outage statistics over cut timeline pieces: count, total, average, longest, and the time without data."""
+    """Outage statistics over cut timeline pieces: count, total, average, longest, light, time without data."""
     n = sum(1 for k, _, _ in segs if k == "outage")
-    off = _sum(segs, ("outage",))
+    off, light = _sum(segs, ("outage",)), _sum(segs, LIGHT)
     return {"outages": n, "outage_s": off, "avg_s": off / n if n else None,
-            "longest_s": _longest(segs, ("outage",)), "unknown_s": _sum(segs, ("unknown",))}
+            "longest_s": _longest(segs, ("outage",)), "unknown_s": _sum(segs, ("unknown",)),
+            "light_s": light, "light_share": light / (light + off) if light + off else None}
+
+
+def schedule_compare(segs, planned, lo, hi_full, now, tz_name):
+    """Real light against the DTEK schedule over [lo, hi_full), counting only the local days that have a saved
+    schedule (up to `now`). segs: the timeline pieces of the same range; planned: {"YYYY-MM-DD": intervals}.
+    Returns None when no day has a schedule."""
+    tz = ZoneInfo(tz_name)
+    hi = min(hi_full, now)
+    if hi <= lo:
+        return None
+    day, last = datetime.fromtimestamp(lo, tz).date(), datetime.fromtimestamp(hi - 1, tz).date()
+    elapsed, days, plan_all, mine = 0, [], [], {"light": 0.0, "outage": 0.0, "unknown": 0.0}
+    same = both = 0.0
+    while day <= last:
+        elapsed += 1
+        iso = day.isoformat()
+        a = datetime(day.year, day.month, day.day, tzinfo=tz).timestamp()
+        z = min(datetime.combine(day + timedelta(days=1), datetime.min.time(), tz).timestamp(), now)
+        if iso in planned and z > a:
+            days.append((a, z))
+            plan = planned_segments(planned[iso], a, z)
+            plan_all += plan
+            clipped = [(k, max(s, a), min(e, z)) for k, s, e in segs if min(e, z) > max(s, a)]
+            for k, s, e in clipped:
+                mine["light" if k in LIGHT else k] += e - s
+            s_, b_ = compare(clipped, plan)
+            same, both = same + s_, both + b_
+        day += timedelta(days=1)
+    if not days:
+        return None
+    outages = [s for s in segs if s[0] == "outage" and any(a <= s[1] < z for a, z in days)]
+    return {"days": len(days), "days_elapsed": elapsed,
+            "actual_light_s": mine["light"], "actual_off_s": mine["outage"], "actual_unknown_s": mine["unknown"],
+            "plan_light_s": _sum(plan_all, ("light",)), "plan_off_s": _sum(plan_all, ("off",)),
+            "plan_maybe_s": _sum(plan_all, ("maybe",)),
+            "match_share": same / both if both else None,
+            "outages": len(outages), "on_schedule_30": on_schedule(outages, plan_all, 1800)}
 
 
 def daily(periods, first, now, days, tz_name, end_day=None, planned=None):

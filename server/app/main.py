@@ -332,7 +332,10 @@ def api_events_month(month: str | None = None, c=Depends(con)):
     for source in ("village", "home"):
         periods = [x for x in p["periods"] if x["source"] == source or (source == "village" and x["source"] == "server")]
         segs = stats.segments(periods, p["first"][source], lo, hi) if hi > lo else []
+        planned = {r["date"]: schedule.intervals(r["date"], json.loads(r["hours"]), config.TZ_NAME)
+                   for r in c.execute("SELECT date, hours FROM schedule_days WHERE source=?", (source,))}
         places[source] = stats.outage_summary(segs)
+        places[source]["schedule"] = stats.schedule_compare(segs, planned, lo, hi_full, now, config.TZ_NAME)
     return {"month": month, "from": lo, "to": hi_full, "first_month": first, "this_month": this,
             "counts": counts, "stats": places}
 
