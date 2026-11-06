@@ -39,6 +39,9 @@ h2 { font-size: 16px; margin: 0; }
 
 /* weekly chart */
 .week { display: grid; grid-template-columns: 82px 1fr 140px; column-gap: 12px; row-gap: 4px; align-items: center; }
+.m-tip { position: fixed; z-index: 9; background: #26262c; border: 1px solid var(--line); border-radius: 8px;
+  padding: 8px 10px; font-size: 13px; line-height: 1.45; color: var(--text); max-width: 280px; display: none;
+  box-shadow: 0 4px 14px rgba(0,0,0,.4); pointer-events: none; }
 .wd { font-weight: 600; font-size: 14px; white-space: nowrap; }
 .wd small { color: var(--muted); font-weight: 400; }
 .bar-wrap { padding: 4px 0 0; }
@@ -109,10 +112,24 @@ label.chk { font-size: 13px; color: var(--muted); display: flex; gap: 6px; align
 .btn2 { margin-top: 8px; border: 1px solid var(--line); background: var(--card2); color: var(--text); border-radius: 8px;
   padding: 7px 12px; font: inherit; font-size: 14px; cursor: pointer; }
 .btn2:disabled { opacity: .5; cursor: default; }
+/* journal: month switcher, monthly statistics, "show more" */
+.m-label { min-width: 140px; text-align: center; color: var(--text); font-size: 14px; font-weight: 600; }
+.mstats { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; margin-bottom: 10px; }
+.mst { background: var(--card2); border-radius: 10px; padding: 10px 12px; }
+.mst h3 { margin: 0 0 8px; font-size: 14px; }
+.mst .mm { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px 12px; }
+.mst .mm b { display: block; font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.mst .mm b.o { color: var(--off); }
+.mst .mm small { color: var(--muted); font-size: 12px; }
+.mst .un { margin-top: 8px; font-size: 12px; color: var(--muted); }
+.more { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.more .btn2 { margin-top: 0; }
 #v-esp a { color: var(--accent); }
 #v-esp .u, #v-ctl .u { color: var(--muted); }
 
 @media (max-width: 600px) {
+  /* the DTEK strip is decoratively thin, but a finger needs something to land on */
+  .plan { height: 14px; margin-top: 5px; }
   /* the day label and its totals share a row, the bar goes full width below; the totals wrap inside their
      own column instead of running into the label (27.10.2026: they overlapped on a phone) */
   .week { grid-template-columns: auto 1fr; grid-auto-flow: row dense; column-gap: 10px; }
@@ -124,6 +141,13 @@ label.chk { font-size: 13px; color: var(--muted); display: flex; gap: 6px; align
   .tot br { display: none; }
   .tot .p { flex-basis: 100%; }
   .tot .pd { display: inline; }
+  /* journal: thumb-sized controls */
+  .nav.big button { min-width: 44px; min-height: 40px; }
+  .m-label { min-width: 0; flex: 1; padding: 0 6px; }
+  .nav.big { flex: 1 1 100%; }
+  .more .btn2 { flex: 1 1 auto; min-height: 44px; }
+  label.chk { min-height: 32px; }
+  label.chk input { width: 20px; height: 20px; }
 }
 .tot .pd { display: block; }
 </style>
@@ -191,8 +215,15 @@ label.chk { font-size: 13px; color: var(--muted); display: flex; gap: 6px; align
 
   <section class="card">
     <div class="row-head"><h2>Журнал</h2>
-      <label class="chk"><input type="checkbox" id="tech"> технічні події</label></div>
+      <div class="nav big"><button id="m-prev" title="Попередній місяць" disabled>◀</button><span class="m-label" id="m-label">…</span><button id="m-next" title="Наступний місяць" disabled>▶</button></div>
+    </div>
+    <div class="mstats" id="mstats"></div>
+    <p class="kv" id="mnote" style="margin:0 0 12px"></p>
+    <div class="row-head">
+      <label class="chk"><input type="checkbox" id="tech"> технічні події</label>
+      <span class="kv" id="ev-count"></span></div>
     <table id="events"></table>
+    <div class="more" id="ev-more"></div>
   </section>
 </main>
 <script>
@@ -399,12 +430,14 @@ function renderBars(r) {
     const span = d.to - d.from;
     const bar = d.segments.map(x => {
       const title = `${fmtH.format(new Date(x.start * 1000))} – ${fmtH.format(new Date(x.end * 1000))} (${dur(x.end - x.start)})`;
-      return `<span class="${x.kind}" title="${title}" style="left:${(x.start - d.from) / span * 100}%;width:${(x.end - x.start) / span * 100}%"></span>`;
+      // data-tip, not title: a native browser tooltip would double the custom popup
+      return `<span class="${x.kind}" data-tip="${title}" style="left:${(x.start - d.from) / span * 100}%;width:${(x.end - x.start) / span * 100}%"></span>`;
     }).join("");
     const plan = d.planned.map(x => {
       const title = `за графіком: ${{light: "світло є", off: "світла немає", maybe: "можливе відключення"}[x.kind]}, ` +
         `${fmtH.format(new Date(x.start * 1000))} – ${fmtH.format(new Date(x.end * 1000))}`;
-      return `<span class="${x.kind}" title="${title}" style="left:${(x.start - d.from) / span * 100}%;width:${(x.end - x.start) / span * 100}%"></span>`;
+      // data-tip, not title: a native browser tooltip would double the custom popup
+      return `<span class="${x.kind}" data-tip="${title}" style="left:${(x.start - d.from) / span * 100}%;width:${(x.end - x.start) / span * 100}%"></span>`;
     }).join("");
     const hasData = d.light_s + d.outage_s > 0;
     let tot = hasData ? `<span class="l">${dur(d.light_s)}</span><br><span class="o">${d.outage_s ? "без світла " + dur(d.outage_s) : "без відключень"}</span>`
@@ -428,6 +461,62 @@ function renderBars(r) {
   }
   $("sched-info").innerHTML = info;
 }
+
+// No hover on phones, so native title tooltips never show there. One custom popup serves both: a tap or
+// click on a bar or on the schedule strip, or hovering it with a mouse, shows the text near the pointer. It
+// hides itself after a few seconds, on a tap somewhere else, when the pointer leaves the bars, or on scroll.
+const KND = {light: "світло було", outage: "без світла", unknown: "немає даних",
+             nolink: "світло було, не було зв'язку"};
+const barTip = document.createElement("div");
+barTip.className = "m-tip";
+document.body.appendChild(barTip);
+let barTipTimer = null, barTapFrom = null, lastBarTapAt = 0;
+const hideBarTip = () => { barTip.style.display = "none"; clearTimeout(barTipTimer); };
+// data-tip holds the texts the native title used to (native tooltips are gone: they doubled the popup)
+const barTipText = span => {
+  const plan = span.parentElement.classList.contains("plan");
+  return (plan ? "" : (KND[span.className] ? KND[span.className] + " " : "")) + (span.dataset.tip || "");
+};
+const showBarTip = (text, cx, cy) => {
+  barTip.textContent = text;
+  barTip.style.display = "block";
+  barTip.style.left = Math.max(4, Math.min(cx + 10, window.innerWidth - barTip.offsetWidth - 4)) + "px";
+  barTip.style.top = Math.max(4, Math.min(cy - barTip.offsetHeight - 10, window.innerHeight - barTip.offsetHeight - 4)) + "px";
+  clearTimeout(barTipTimer);
+  barTipTimer = setTimeout(hideBarTip, 6000);
+};
+const tappedBar = ev => {
+  const el = ev.target;
+  return el && el.closest ? el.closest(".bar > span, .plan > span") : null;
+};
+document.addEventListener("touchstart", ev => {
+  const t0 = ev.touches[0];
+  barTapFrom = {x: t0.clientX, y: t0.clientY, at: Date.now()};
+}, {passive: true, capture: true});
+document.addEventListener("touchend", ev => {
+  const t = ev.changedTouches[0], span = tappedBar(ev);
+  lastBarTapAt = Date.now();
+  // a scroll or a drag is not a tap: the finger must stay still; a slow deliberate press up to 1.5 s
+  // still counts, so the tip reads long enough before the finger comes up
+  if (!barTapFrom || Math.hypot(t.clientX - barTapFrom.x, t.clientY - barTapFrom.y) > 12
+      || Date.now() - barTapFrom.at > 1500) return;
+  if (span) showBarTip(barTipText(span), t.clientX, t.clientY); else hideBarTip();
+}, {passive: true, capture: true});
+document.addEventListener("click", ev => {
+  if (Date.now() - lastBarTapAt < 900) return;  // the touch above already handled the tap
+  const span = tappedBar(ev);
+  if (span) showBarTip(barTipText(span), ev.clientX, ev.clientY); else hideBarTip();
+});
+// desktop hover replaces the removed native tooltips; moving along a bar keeps the popup alive (each move
+// re-arms the 6 s timer). A touch tap also synthesizes mouseover/mousemove, guarded by lastBarTapAt.
+const hoverBarTip = ev => {
+  if (Date.now() - lastBarTapAt < 900) return;
+  const span = tappedBar(ev);
+  if (span) showBarTip(barTipText(span), ev.clientX, ev.clientY); else hideBarTip();
+};
+document.addEventListener("mouseover", hoverBarTip);
+document.addEventListener("mousemove", hoverBarTip);
+window.addEventListener("scroll", hideBarTip, {passive: true, capture: true});
 
 // One row per day, for both places: hours without light in fact and by the DTEK schedule.
 function renderTable(home, village) {
@@ -484,8 +573,10 @@ function timeTicks(from, to) {
   return out;
 }
 
-// opts: {box, from, to, rows, series: [{key, cls, color, axis: "l"|"r", min, max, unit, name, digits, gap, noAxis}],
+// opts: {box, from, to, rows, series: [{key, cls, color, axis: "l"|"r", min, max, unit, name, digits, gap, noAxis, step}],
 //        bands, gap, extra(row, values)}; noAxis = shares the scale of another series, no own labels;
+//        step = staircase that holds the last known value between samples (battery: rare outage
+//        samples stay connected, no breaks);
 //        alsoKeys = more fields of the same rows to pass to extra (pressure comes with the room samples)
 function drawChart(opts) {
   const box = $(opts.box), svg = box.querySelector("svg"), tip = box.querySelector(".tip");
@@ -510,6 +601,21 @@ function drawChart(opts) {
   }
   const rows = opts.rows;
   opts.series.forEach((sr, k) => {
+    if (sr.step) {
+      // Staircase through every sample: the line holds the last known value between samples and
+      // steps exactly at each new sample. So even rare points (the sleeping laptop reports every
+      // 5–30 min during an outage) stay connected: the line runs through the shaded window without
+      // breaks or a drop to zero, and over a long hole it is simply one horizontal stretch.
+      let d = "", prevPt = null;
+      for (const r0 of rows) {
+        if (r0[sr.key] == null) continue;
+        const px = x(r0.ts).toFixed(1), py = ys[k](r0[sr.key]).toFixed(1);
+        d += prevPt ? `L${px},${prevPt.y} L${px},${py}` : `M${px},${py}`;
+        prevPt = {y: py};
+      }
+      if (prevPt) s += `<path class="${sr.cls}" d="${d}"/>`;
+      return;
+    }
     let seg = [], prev = null;
     const flush = () => { if (seg.length > 1) s += `<polyline class="${sr.cls}" points="${seg.join(" ")}"/>`; seg = []; };
     for (const r0 of rows) {
@@ -580,7 +686,7 @@ function renderBattery(rows, from, to) {
     if ((r.ac || i === rows.length - 1) && startOff != null) { bands.push([startOff, r.ts]); startOff = null; }
   });
   drawChart({box: "bat-box", from, to, rows, bands, gap: 900,
-    series: [{key: "battery", cls: "bat", color: "var(--accent)", axis: "l", min: 0, max: 100, unit: "%", name: "заряд"}],
+    series: [{key: "battery", cls: "bat", color: "var(--accent)", axis: "l", min: 0, max: 100, unit: "%", name: "заряд", step: true}],
     extra: r => [r.ac ? "зарядка підключена" : `<span style="color:var(--off)">без зарядки</span>`]});
 }
 
@@ -632,16 +738,68 @@ function renderEvents(list) {
     if (e.type === "power_lost" && d.late) extra += " (виявлено із запізненням)";
     if (e.type === "gap_unknown" && d.reason) extra += ` · ${esc(d.reason)}`;
     return `<tr><td class="t">${t(e.ts)}</td><td class="s">${S_TEXT[e.source] || esc(e.source)}</td><td>${E_TEXT[e.type] || esc(e.type)}${extra}</td></tr>`;
-  }).join("") || `<tr><td>Подій ще немає</td></tr>`;
+  }).join("") || `<tr><td>У цьому місяці подій немає</td></tr>`;
 }
+
+// Journal: one calendar month (Europe/Kyiv) at a time, newest first, 20 rows with "show more".
+// evMonth null = follow the current month. The server keeps every event; nothing here trims the history.
+const EV_STEP = 20;
+let evMonth = null, evShown = EV_STEP, evTok = 0;
+const monthLabel = ym => {
+  const s = new Intl.DateTimeFormat("uk-UA", {timeZone: "UTC", month: "long", year: "numeric"})
+    .format(new Date(Date.UTC(+ym.slice(0, 4), +ym.slice(5, 7) - 1, 15))).replace(/\s*р\.$/, "");
+  return s.charAt(0).toUpperCase() + s.slice(1);
+};
+const shiftMonth = (ym, d) => {
+  const n = +ym.slice(0, 4) * 12 + (+ym.slice(5, 7) - 1) + d;
+  return `${Math.floor(n / 12)}-${String(n % 12 + 1).padStart(2, "0")}`;
+};
+
+function renderMonthStats(meta) {
+  $("m-label").textContent = monthLabel(meta.month);
+  $("m-label").dataset.m = meta.month; $("m-label").dataset.cur = meta.this_month;
+  $("m-prev").disabled = meta.month <= meta.first_month;
+  $("m-next").disabled = meta.month >= meta.this_month;
+  const tile = (name, s) => `<div class="mst"><h3>${name}</h3><div class="mm">` +
+    `<div><b class="${s.outages ? "o" : ""}">${s.outages}</b><small>відключень</small></div>` +
+    `<div><b>${dur(s.outage_s)}</b><small>без світла разом</small></div>` +
+    `<div><b>${s.avg_s == null ? "—" : dur(s.avg_s)}</b><small>середня тривалість</small></div>` +
+    `<div><b>${s.outages ? dur(s.longest_s) : "—"}</b><small>найдовше</small></div></div>` +
+    (s.unknown_s >= 60 ? `<div class="un">немає даних: ${dur(s.unknown_s)}</div>` : "") + `</div>`;
+  $("mstats").innerHTML = tile("Село", meta.stats.village) + tile("Дім", meta.stats.home);
+  $("mnote").textContent = "Відключення, що тривало через межу місяців, ділиться опівночі.";
+}
+
+async function journal() {
+  const tok = ++evTok, tech = $("tech").checked;
+  const meta = await get("api/events/month" + (evMonth ? "?month=" + evMonth : ""));
+  const total = tech ? meta.counts.all : meta.counts.main, want = Math.min(evShown, total);
+  let list = [];
+  while (list.length < want) {  // the API serves at most 1000 rows per call
+    const page = await get(`api/events?since=${meta.from}&until=${meta.to}&technical=${tech}` +
+      `&limit=${Math.min(1000, want - list.length)}&offset=${list.length}`);
+    if (!page.length) break;
+    list = list.concat(page);
+  }
+  if (tok !== evTok) return;  // a newer request (month switched while this one was loading) wins
+  renderMonthStats(meta);
+  renderEvents(list);
+  $("ev-count").textContent = total ? `показано ${list.length} з ${total}` : "";
+  const left = total - list.length;
+  $("ev-more").innerHTML =
+    (left > 0 ? `<button class="btn2" data-n="${EV_STEP}">Показати ще ${Math.min(EV_STEP, left)}</button>` : "") +
+    (left > EV_STEP ? `<button class="btn2" data-n="all">Показати всі (${total})</button>` : "") +
+    (evShown > EV_STEP && list.length > EV_STEP ? `<button class="btn2" data-n="less">Згорнути</button>` : "");
+}
+const journalNow = () => journal().catch(() => { $("ev-count").innerHTML = `<span class="err">немає зв'язку з сервером</span>`; });
 
 async function refresh() {
   try {
     const now = Date.now() / 1000;
     const [s, wh, wv, b, e, env] = await Promise.all([get("api/status"), get(`api/daily?source=home&week=${week}`),
       get(`api/daily?source=village&week=${week}`), get("api/battery?hours=24"),
-      get("api/events?limit=100&technical=" + $("tech").checked), get("api/sensors?hours=" + envHours)]);
-    renderStatus(s); renderBars(source === "home" ? wh : wv); renderTable(wh, wv); renderBattery(b, now - 86400, now); renderEvents(e); renderEnv(env);
+      journal(), get("api/sensors?hours=" + envHours)]);
+    renderStatus(s); renderBars(source === "home" ? wh : wv); renderTable(wh, wv); renderBattery(b, now - 86400, now); renderEnv(env);
     // separately: the server may wait on GitHub the first time, the rest of the page must not
     const ctl = fw => {
       renderCtl(s.village, fw, s.now);
@@ -667,7 +825,19 @@ $("env-range").addEventListener("click", ev => {
 });
 $("prev").addEventListener("click", () => { week++; refresh(); });
 $("next").addEventListener("click", () => { if (week) { week--; refresh(); } });
-$("tech").addEventListener("change", refresh);
+$("tech").addEventListener("change", () => { evShown = EV_STEP; journalNow(); });
+$("m-prev").addEventListener("click", () => {
+  evMonth = shiftMonth(evMonth || $("m-label").dataset.m, -1); evShown = EV_STEP; journalNow();
+});
+$("m-next").addEventListener("click", () => {
+  const m = shiftMonth(evMonth || $("m-label").dataset.m, 1);
+  evMonth = m >= $("m-label").dataset.cur ? null : m; evShown = EV_STEP; journalNow();
+});
+$("ev-more").addEventListener("click", ev => {
+  const n = ev.target.closest("button")?.dataset.n; if (!n) return;
+  evShown = n === "all" ? 100000 : n === "less" ? EV_STEP : evShown + EV_STEP;
+  journalNow();
+});
 refresh();
 setInterval(refresh, 30000);
 </script>

@@ -54,6 +54,26 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(periods[0]["source"], "home")
         self.assertEqual(len(self.c.get("/api/battery").json()), 2)
 
+    def test_battery_thinning_keeps_every_outage_sample(self):
+        """A sleeping laptop reports exactly every step-th row when densely sampled (30 min == 60 records
+        of 30 s), so the plain [::step] slice could drop the whole outage window; every ac=0 row is kept."""
+        import time
+        from app import db
+        con = db.connect()
+        con.isolation_level = None
+        base = int(time.time()) // 30 * 30
+        for i in range(0, 24 * 120 + 1):  # 2881 dense on-charger samples, 30 s apart -> step 4
+            con.execute("INSERT OR REPLACE INTO power_samples(ts,ac,battery) VALUES(?,1,80.0)",
+                        (base - 86400 + i * 30,))
+        outage = [base - 43200 + 60 + k * 1800 for k in range(16)]  # an unlucky slice residue
+        for ts in outage:
+            con.execute("INSERT OR REPLACE INTO power_samples(ts,ac,battery) VALUES(?,0,45.0)", (ts,))
+        con.commit()
+        con.close()
+        out = self.c.get("/api/battery?hours=24").json()
+        self.assertEqual([r["ts"] for r in out if r["ac"] == 0], outage)
+        self.assertLessEqual(len(out), 760)  # still thinned to ~600 points for the chart
+
     def test_bad_power_body_is_400_and_unknown_events_are_acked(self):
         h = {"X-Device-Key": TOKEN}
         self.assertEqual(self.c.post("/api/power", headers=h, json=[1, 2]).status_code, 400)
@@ -160,6 +180,81 @@ class ApiTest(unittest.TestCase):
             self.assertEqual(self.c.post("/api/esp/command", json={"cmd": "reboot", "target": "moon"}).status_code, 400)
         finally:
             healthchecks.HealthchecksRelay.set_cmd = orig
+
+    # --- journal: paging through the whole history and the monthly summary ---------------------------------
+
+    def kyiv(self, y, mo, d, h=0, mi=0):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        return datetime(y, mo, d, h, mi, tzinfo=ZoneInfo("Europe/Kyiv")).timestamp()
+
+    def seed(self, rows):
+        from app import db
+        con = db.connect()
+        con.isolation_level = None
+        for source, type_, ts, start, end in rows:
+            db.add_event(con, {"source": source, "type": type_, "ts": ts, "start": start, "end": end})
+        con.close()
+
+    def test_events_since_until_offset_reach_the_whole_history(self):
+        base = self.kyiv(2026, 1, 1)
+        self.seed([("village", "power_lost", base + i * 60, None, None) for i in range(1500)])
+        ev = lambda q: self.c.get("/api/events?" + q).json()
+        self.assertEqual(len(ev("limit=100")), 100)  # the old call is unchanged
+        self.assertEqual(len(ev("limit=5000")), 1000)  # the cap stays
+        first = ev("limit=1000")
+        second = ev("limit=1000&offset=1000")
+        self.assertEqual(len(second), 500)
+        ids = [e["id"] for e in first + second]
+        self.assertEqual(len(set(ids)), 1500)  # no overlaps, nothing lost between pages
+        self.assertEqual([e["ts"] for e in first + second], sorted((e["ts"] for e in first + second), reverse=True))
+        win = ev(f"limit=1000&since={base + 600}&until={base + 1200}")  # [since, until)
+        self.assertEqual([e["ts"] for e in win][::-1], [base + 600 + i * 60 for i in range(10)])
+
+    def test_events_month_counts_and_stats(self):
+        k = self.kyiv
+        from app import db
+        con = db.connect()
+        con.isolation_level = None
+        for src in ("village", "home"):  # first data points, otherwise the time before them is "unknown"
+            con.execute("INSERT INTO pings(source,ts,seq) VALUES(?,?,1)", (src, k(2025, 12, 1)))
+        con.close()
+        self.seed([
+            # village: one outage across the New Year-like month border, one inside February
+            ("village", "power_lost", k(2026, 1, 31, 22), None, None),
+            ("village", "power_restored", k(2026, 2, 1, 2), k(2026, 1, 31, 22), k(2026, 2, 1, 2)),
+            ("village", "power_lost", k(2026, 2, 10, 12), None, None),
+            ("village", "power_restored", k(2026, 2, 10, 13), k(2026, 2, 10, 12), k(2026, 2, 10, 13)),
+            ("village", "esp_reboot", k(2026, 2, 10, 13, 1), None, None),  # technical only
+            ("home", "power_lost", k(2026, 2, 20, 9), None, None),
+            ("home", "power_restored", k(2026, 2, 20, 10), k(2026, 2, 20, 9), k(2026, 2, 20, 10)),
+        ])
+        m = self.c.get("/api/events/month?month=2026-02").json()
+        self.assertEqual(m["month"], "2026-02")
+        self.assertEqual((m["from"], m["to"]), (k(2026, 2, 1), k(2026, 3, 1)))
+        self.assertEqual(m["first_month"], "2026-01")
+        self.assertEqual(m["counts"], {"main": 5, "all": 6})  # the Jan 31 pair: only its "restored" row is in Feb
+        v, h = m["stats"]["village"], m["stats"]["home"]
+        self.assertEqual(v["outages"], 2)  # the border outage counts from 00:00 on Feb 1
+        self.assertEqual(v["outage_s"], 2 * 3600 + 3600)
+        self.assertEqual(v["longest_s"], 2 * 3600)
+        self.assertEqual(v["avg_s"], 1.5 * 3600)
+        self.assertEqual((h["outages"], h["outage_s"], h["longest_s"]), (1, 3600, 3600))
+        jan = self.c.get("/api/events/month?month=2026-01").json()
+        self.assertEqual(jan["stats"]["village"]["outage_s"], 2 * 3600)  # 22:00 -> 00:00
+        self.assertEqual(jan["counts"], {"main": 1, "all": 1})
+        # a month without events: zeros, no division by zero
+        empty = self.c.get("/api/events/month?month=2026-03").json()
+        self.assertEqual(empty["stats"]["village"]["outages"], 0)
+        self.assertIsNone(empty["stats"]["village"]["avg_s"])
+        # the list for the same month is just /api/events with the borders
+        lst = self.c.get(f"/api/events?since={m['from']}&until={m['to']}&limit=1000").json()
+        self.assertEqual(len(lst), m["counts"]["main"])
+
+    def test_events_month_rejects_bad_input(self):
+        for bad in ("2026", "2026-13", "2026-1", "abcd-ef", "2026/02", "2026-02-01"):
+            self.assertEqual(self.c.get("/api/events/month?month=" + bad).status_code, 400, bad)
+        self.assertEqual(self.c.get("/api/events/month").status_code, 200)  # default: this month
 
 
 if __name__ == "__main__":
