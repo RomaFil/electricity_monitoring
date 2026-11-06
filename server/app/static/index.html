@@ -112,6 +112,18 @@ label.chk { font-size: 13px; color: var(--muted); display: flex; gap: 6px; align
 .btn2 { margin-top: 8px; border: 1px solid var(--line); background: var(--card2); color: var(--text); border-radius: 8px;
   padding: 7px 12px; font: inherit; font-size: 14px; cursor: pointer; }
 .btn2:disabled { opacity: .5; cursor: default; }
+/* journal: month switcher, monthly statistics, "show more" */
+.m-label { min-width: 140px; text-align: center; color: var(--text); font-size: 14px; font-weight: 600; }
+.mstats { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; margin-bottom: 10px; }
+.mst { background: var(--card2); border-radius: 10px; padding: 10px 12px; }
+.mst h3 { margin: 0 0 8px; font-size: 14px; }
+.mst .mm { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px 12px; }
+.mst .mm b { display: block; font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.mst .mm b.o { color: var(--off); }
+.mst .mm small { color: var(--muted); font-size: 12px; }
+.mst .un { margin-top: 8px; font-size: 12px; color: var(--muted); }
+.more { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.more .btn2 { margin-top: 0; }
 #v-esp a { color: var(--accent); }
 #v-esp .u, #v-ctl .u { color: var(--muted); }
 
@@ -129,6 +141,13 @@ label.chk { font-size: 13px; color: var(--muted); display: flex; gap: 6px; align
   .tot br { display: none; }
   .tot .p { flex-basis: 100%; }
   .tot .pd { display: inline; }
+  /* journal: thumb-sized controls */
+  .nav.big button { min-width: 44px; min-height: 40px; }
+  .m-label { min-width: 0; flex: 1; padding: 0 6px; }
+  .nav.big { flex: 1 1 100%; }
+  .more .btn2 { flex: 1 1 auto; min-height: 44px; }
+  label.chk { min-height: 32px; }
+  label.chk input { width: 20px; height: 20px; }
 }
 .tot .pd { display: block; }
 </style>
@@ -196,8 +215,15 @@ label.chk { font-size: 13px; color: var(--muted); display: flex; gap: 6px; align
 
   <section class="card">
     <div class="row-head"><h2>Журнал</h2>
-      <label class="chk"><input type="checkbox" id="tech"> технічні події</label></div>
+      <div class="nav big"><button id="m-prev" title="Попередній місяць" disabled>◀</button><span class="m-label" id="m-label">…</span><button id="m-next" title="Наступний місяць" disabled>▶</button></div>
+    </div>
+    <div class="mstats" id="mstats"></div>
+    <p class="kv" id="mnote" style="margin:0 0 12px"></p>
+    <div class="row-head">
+      <label class="chk"><input type="checkbox" id="tech"> технічні події</label>
+      <span class="kv" id="ev-count"></span></div>
     <table id="events"></table>
+    <div class="more" id="ev-more"></div>
   </section>
 </main>
 <script>
@@ -712,16 +738,68 @@ function renderEvents(list) {
     if (e.type === "power_lost" && d.late) extra += " (виявлено із запізненням)";
     if (e.type === "gap_unknown" && d.reason) extra += ` · ${esc(d.reason)}`;
     return `<tr><td class="t">${t(e.ts)}</td><td class="s">${S_TEXT[e.source] || esc(e.source)}</td><td>${E_TEXT[e.type] || esc(e.type)}${extra}</td></tr>`;
-  }).join("") || `<tr><td>Подій ще немає</td></tr>`;
+  }).join("") || `<tr><td>У цьому місяці подій немає</td></tr>`;
 }
+
+// Journal: one calendar month (Europe/Kyiv) at a time, newest first, 20 rows with "show more".
+// evMonth null = follow the current month. The server keeps every event; nothing here trims the history.
+const EV_STEP = 20;
+let evMonth = null, evShown = EV_STEP, evTok = 0;
+const monthLabel = ym => {
+  const s = new Intl.DateTimeFormat("uk-UA", {timeZone: "UTC", month: "long", year: "numeric"})
+    .format(new Date(Date.UTC(+ym.slice(0, 4), +ym.slice(5, 7) - 1, 15))).replace(/\s*р\.$/, "");
+  return s.charAt(0).toUpperCase() + s.slice(1);
+};
+const shiftMonth = (ym, d) => {
+  const n = +ym.slice(0, 4) * 12 + (+ym.slice(5, 7) - 1) + d;
+  return `${Math.floor(n / 12)}-${String(n % 12 + 1).padStart(2, "0")}`;
+};
+
+function renderMonthStats(meta) {
+  $("m-label").textContent = monthLabel(meta.month);
+  $("m-label").dataset.m = meta.month; $("m-label").dataset.cur = meta.this_month;
+  $("m-prev").disabled = meta.month <= meta.first_month;
+  $("m-next").disabled = meta.month >= meta.this_month;
+  const tile = (name, s) => `<div class="mst"><h3>${name}</h3><div class="mm">` +
+    `<div><b class="${s.outages ? "o" : ""}">${s.outages}</b><small>відключень</small></div>` +
+    `<div><b>${dur(s.outage_s)}</b><small>без світла разом</small></div>` +
+    `<div><b>${s.avg_s == null ? "—" : dur(s.avg_s)}</b><small>середня тривалість</small></div>` +
+    `<div><b>${s.outages ? dur(s.longest_s) : "—"}</b><small>найдовше</small></div></div>` +
+    (s.unknown_s >= 60 ? `<div class="un">немає даних: ${dur(s.unknown_s)}</div>` : "") + `</div>`;
+  $("mstats").innerHTML = tile("Село", meta.stats.village) + tile("Дім", meta.stats.home);
+  $("mnote").textContent = "Відключення, що тривало через межу місяців, ділиться опівночі.";
+}
+
+async function journal() {
+  const tok = ++evTok, tech = $("tech").checked;
+  const meta = await get("api/events/month" + (evMonth ? "?month=" + evMonth : ""));
+  const total = tech ? meta.counts.all : meta.counts.main, want = Math.min(evShown, total);
+  let list = [];
+  while (list.length < want) {  // the API serves at most 1000 rows per call
+    const page = await get(`api/events?since=${meta.from}&until=${meta.to}&technical=${tech}` +
+      `&limit=${Math.min(1000, want - list.length)}&offset=${list.length}`);
+    if (!page.length) break;
+    list = list.concat(page);
+  }
+  if (tok !== evTok) return;  // a newer request (month switched while this one was loading) wins
+  renderMonthStats(meta);
+  renderEvents(list);
+  $("ev-count").textContent = total ? `показано ${list.length} з ${total}` : "";
+  const left = total - list.length;
+  $("ev-more").innerHTML =
+    (left > 0 ? `<button class="btn2" data-n="${EV_STEP}">Показати ще ${Math.min(EV_STEP, left)}</button>` : "") +
+    (left > EV_STEP ? `<button class="btn2" data-n="all">Показати всі (${total})</button>` : "") +
+    (evShown > EV_STEP && list.length > EV_STEP ? `<button class="btn2" data-n="less">Згорнути</button>` : "");
+}
+const journalNow = () => journal().catch(() => { $("ev-count").innerHTML = `<span class="err">немає зв'язку з сервером</span>`; });
 
 async function refresh() {
   try {
     const now = Date.now() / 1000;
     const [s, wh, wv, b, e, env] = await Promise.all([get("api/status"), get(`api/daily?source=home&week=${week}`),
       get(`api/daily?source=village&week=${week}`), get("api/battery?hours=24"),
-      get("api/events?limit=100&technical=" + $("tech").checked), get("api/sensors?hours=" + envHours)]);
-    renderStatus(s); renderBars(source === "home" ? wh : wv); renderTable(wh, wv); renderBattery(b, now - 86400, now); renderEvents(e); renderEnv(env);
+      journal(), get("api/sensors?hours=" + envHours)]);
+    renderStatus(s); renderBars(source === "home" ? wh : wv); renderTable(wh, wv); renderBattery(b, now - 86400, now); renderEnv(env);
     // separately: the server may wait on GitHub the first time, the rest of the page must not
     const ctl = fw => {
       renderCtl(s.village, fw, s.now);
@@ -747,7 +825,19 @@ $("env-range").addEventListener("click", ev => {
 });
 $("prev").addEventListener("click", () => { week++; refresh(); });
 $("next").addEventListener("click", () => { if (week) { week--; refresh(); } });
-$("tech").addEventListener("change", refresh);
+$("tech").addEventListener("change", () => { evShown = EV_STEP; journalNow(); });
+$("m-prev").addEventListener("click", () => {
+  evMonth = shiftMonth(evMonth || $("m-label").dataset.m, -1); evShown = EV_STEP; journalNow();
+});
+$("m-next").addEventListener("click", () => {
+  const m = shiftMonth(evMonth || $("m-label").dataset.m, 1);
+  evMonth = m >= $("m-label").dataset.cur ? null : m; evShown = EV_STEP; journalNow();
+});
+$("ev-more").addEventListener("click", ev => {
+  const n = ev.target.closest("button")?.dataset.n; if (!n) return;
+  evShown = n === "all" ? 100000 : n === "less" ? EV_STEP : evShown + EV_STEP;
+  journalNow();
+});
 refresh();
 setInterval(refresh, 30000);
 </script>

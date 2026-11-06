@@ -89,6 +89,14 @@ def on_schedule(actual, planned, tolerance):
     return sum(1 for k, a, _ in actual if k == "outage" and any(abs(a - s) <= tolerance for s in starts))
 
 
+def outage_summary(segs):
+    """Outage statistics over cut timeline pieces: count, total, average, longest, and the time without data."""
+    n = sum(1 for k, _, _ in segs if k == "outage")
+    off = _sum(segs, ("outage",))
+    return {"outages": n, "outage_s": off, "avg_s": off / n if n else None,
+            "longest_s": _longest(segs, ("outage",)), "unknown_s": _sum(segs, ("unknown",))}
+
+
 def daily(periods, first, now, days, tz_name, end_day=None, planned=None):
     """Rows for `days` local days ending with end_day (default: today), plus a summary.
     planned: {"YYYY-MM-DD": intervals} — official schedule, optional."""

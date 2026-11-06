@@ -271,22 +271,80 @@ def api_status(c=Depends(con)):
     return out
 
 
+def _event_filter(technical, since, until):
+    """WHERE clause + params for the journal: main types unless technical, ts in [since, until)."""
+    where, args = [], []
+    if not technical:
+        where.append(f"type IN ({','.join('?' * len(MAIN_TYPES))})")
+        args += MAIN_TYPES
+    if since is not None:
+        where.append("ts >= ?")
+        args.append(since)
+    if until is not None:
+        where.append("ts < ?")
+        args.append(until)
+    return (" WHERE " + " AND ".join(where)) if where else "", args
+
+
 @app.get("/api/events")
-def api_events(limit: int = 100, technical: bool = False, c=Depends(con)):
+def api_events(limit: int = 100, technical: bool = False, since: float | None = None,
+               until: float | None = None, offset: int = 0, c=Depends(con)):
+    """Newest first. since/until (unix seconds, [since, until)) and offset page through the whole history;
+    the events table is never trimmed."""
     limit = max(1, min(limit, 1000))
-    if technical:
-        rows = c.execute("SELECT * FROM events ORDER BY ts DESC LIMIT ?", (limit,)).fetchall()
-    else:
-        q = f"SELECT * FROM events WHERE type IN ({','.join('?' * len(MAIN_TYPES))}) ORDER BY ts DESC LIMIT ?"
-        rows = c.execute(q, (*MAIN_TYPES, limit)).fetchall()
+    where, args = _event_filter(technical, since, until)
+    rows = c.execute(f"SELECT * FROM events{where} ORDER BY ts DESC, id DESC LIMIT ? OFFSET ?",
+                     (*args, limit, max(0, offset))).fetchall()
     return [db.row_to_event(r) for r in rows]
+
+
+def _month_bounds(month: str):
+    """'YYYY-MM' -> (start, end) unix seconds of that calendar month in config.TZ_NAME."""
+    try:
+        y, m = int(month[:4]), int(month[5:7])
+        if len(month) != 7 or month[4] != "-" or not 1 <= m <= 12 or not 1970 <= y <= 2200:
+            raise ValueError
+    except ValueError:
+        raise HTTPException(400, "month must be YYYY-MM")
+    tz = ZoneInfo(config.TZ_NAME)
+    ny, nm = (y + 1, 1) if m == 12 else (y, m + 1)
+    return datetime(y, m, 1, tzinfo=tz).timestamp(), datetime(ny, nm, 1, tzinfo=tz).timestamp()
+
+
+@app.get("/api/events/month")
+def api_events_month(month: str | None = None, c=Depends(con)):
+    """Journal summary for one calendar month (Europe/Kyiv): entry counts and outage statistics per place.
+    Outages are cut at the month borders, the same way as in the weekly table."""
+    now = time.time()
+    tz = ZoneInfo(config.TZ_NAME)
+    this = datetime.fromtimestamp(now, tz).strftime("%Y-%m")
+    month = month or this
+    lo, hi_full = _month_bounds(month)
+    first_ts = c.execute("SELECT MIN(ts) FROM events").fetchone()[0]
+    first = datetime.fromtimestamp(first_ts, tz).strftime("%Y-%m") if first_ts else this
+    counts = {}
+    for key, tech in (("main", False), ("all", True)):
+        where, args = _event_filter(tech, lo, hi_full)
+        counts[key] = c.execute(f"SELECT COUNT(*) FROM events{where}", args).fetchone()[0]
+    hi = min(hi_full, now)
+    p = _periods(c, now, lo)
+    places = {}
+    for source in ("village", "home"):
+        periods = [x for x in p["periods"] if x["source"] == source or (source == "village" and x["source"] == "server")]
+        segs = stats.segments(periods, p["first"][source], lo, hi) if hi > lo else []
+        places[source] = stats.outage_summary(segs)
+    return {"month": month, "from": lo, "to": hi_full, "first_month": first, "this_month": this,
+            "counts": counts, "stats": places}
 
 
 @app.get("/api/periods")
 def api_periods(hours: float = 24, c=Depends(con)):
     """Closed outage / unknown / no-link periods overlapping the window, plus the open one."""
     now = time.time()
-    since = now - max(1.0, min(hours, 24 * 92)) * 3600
+    return _periods(c, now, now - max(1.0, min(hours, 24 * 92)) * 3600)
+
+
+def _periods(c, now, since):
     rows = c.execute(
         "SELECT source,type,start,end,detail FROM events WHERE type IN ('power_restored','gap_unknown','link_restored') "
         "AND start IS NOT NULL AND end >= ? ORDER BY start", (since,)).fetchall()
