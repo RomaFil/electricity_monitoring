@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo
 
 from _paths import *  # noqa: F401,F403
 from app import schedule
-from app.stats import daily, outage_summary, schedule_compare, segments
+from app.stats import daily, outage_summary, schedule_compare, segments, worst_day
 
 TZ = "Europe/Kyiv"
 H = 3600
@@ -61,6 +61,37 @@ class DailyTest(unittest.TestCase):
         off = next(x for x in d["planned"] if x["kind"] == "off")
         self.assertEqual(datetime.fromtimestamp(off["start"], tz).hour, 14)
         self.assertEqual(d["light_s"], 24 * H)  # up to 23:00 wall time = 24 real hours
+
+
+class LongestRunTest(unittest.TestCase):
+    """The longest outage is one unbroken run; the worst day adds up several outages of one local day."""
+
+    def setUp(self):
+        self.lo, self.hi = ts(10, 0), ts(13, 0)
+        periods = [{"kind": "outage", "start": ts(10, 22), "end": ts(11, 16)},      # 18 h, over midnight
+                   {"kind": "outage", "start": ts(11, 17), "end": ts(11, 18, 5)},   # after a 1 h break
+                   {"kind": "outage", "start": ts(11, 20), "end": ts(12, 0)}]
+        self.segs = segments(periods, 0, self.lo, self.hi)
+
+    def test_longest_is_one_unbroken_run_with_its_dates(self):
+        s = outage_summary(self.segs)
+        self.assertEqual(s["longest_s"], 18 * H)
+        self.assertEqual((s["longest_start"], s["longest_end"]), (ts(10, 22), ts(11, 16)))
+
+    def test_worst_day_adds_up_the_day(self):
+        w = worst_day(self.segs, self.lo, self.hi, TZ)
+        # Oct 10: 2 h (22-24), Oct 11: 16 + 1h05 + 4 h = 21 h 05 min - more than the longest single outage
+        self.assertEqual(w, {"date": "2026-10-11", "outage_s": 16 * H + H + 5 * 60 + 4 * H})
+
+    def test_no_outage_means_no_run_and_no_worst_day(self):
+        segs = segments([], 0, self.lo, self.hi)
+        s = outage_summary(segs)
+        self.assertEqual((s["longest_s"], s["longest_start"], s["longest_end"]), (0, None, None))
+        self.assertIsNone(worst_day(segs, self.lo, self.hi, TZ))
+
+    def test_worst_day_is_cut_at_the_range_borders(self):
+        w = worst_day(self.segs, ts(11, 12), ts(11, 14), TZ)  # only 12:00-14:00 of Oct 11 is inside
+        self.assertEqual(w["outage_s"], 2 * H)
 
 
 class MonthScheduleTest(unittest.TestCase):
