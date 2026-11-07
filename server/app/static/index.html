@@ -440,13 +440,15 @@ function renderBars(r) {
     const bar = d.segments.map(x => {
       const title = `${fmtH.format(new Date(x.start * 1000))} – ${fmtH.format(new Date(x.end * 1000))} (${dur(x.end - x.start)})`;
       // data-tip, not title: a native browser tooltip would double the custom popup
-      return `<span class="${x.kind}" data-tip="${title}" style="left:${(x.start - d.from) / span * 100}%;width:${(x.end - x.start) / span * 100}%"></span>`;
+      // +1px: every piece runs 1px under the next one. Two neighbours with fractional edges otherwise leave a
+      // half-covered pixel at the seam where the dark bar background shows through as a thin black line
+      return `<span class="${x.kind}" data-tip="${title}" style="left:${(x.start - d.from) / span * 100}%;width:calc(${(x.end - x.start) / span * 100}% + 1px)"></span>`;
     }).join("");
     const plan = d.planned.map(x => {
       const title = `за графіком: ${{light: "світло є", off: "світла немає", maybe: "можливе відключення"}[x.kind]}, ` +
         `${fmtH.format(new Date(x.start * 1000))} – ${fmtH.format(new Date(x.end * 1000))}`;
       // data-tip, not title: a native browser tooltip would double the custom popup
-      return `<span class="${x.kind}" data-tip="${title}" style="left:${(x.start - d.from) / span * 100}%;width:${(x.end - x.start) / span * 100}%"></span>`;
+      return `<span class="${x.kind}" data-tip="${title}" style="left:${(x.start - d.from) / span * 100}%;width:calc(${(x.end - x.start) / span * 100}% + 1px)"></span>`;
     }).join("");
     const hasData = d.light_s + d.outage_s > 0;
     let tot = hasData ? `<span class="l">${dur(d.light_s)}</span><br><span class="o">${d.outage_s ? "без світла " + dur(d.outage_s) : "без відключень"}</span>`
@@ -792,7 +794,10 @@ function renderMonthStats(meta) {
     `<div><b>${dur(s.light_s)}</b><small>зі світлом разом</small></div>` +
     `<div><b>${s.light_share == null ? "—" : (s.light_share * 100).toFixed(1).replace(".", ",") + " %"}</b><small>частка часу зі світлом</small></div>` +
     `<div><b>${s.avg_s == null ? "—" : dur(s.avg_s)}</b><small>середня тривалість</small></div>` +
-    `<div><b>${s.outages ? dur(s.longest_s) : "—"}</b><small>найдовше</small></div></div>` +
+    `<div><b>${s.outages ? dur(s.longest_s) : "—"}</b><small>найдовше без перерви` +
+    (s.longest_start != null ? `<br>${t(s.longest_start)} – ${t(s.longest_end)}` : "") + `</small></div></div>` +
+    (s.worst_day ? `<div class="un">найгірша доба: <b>${ddmm(s.worst_day.date)}</b>, без світла разом <b>${dur(s.worst_day.outage_s)}</b> ` +
+      `(усі відключення тієї доби, не одне)</div>` : "") +
     cmp(s, s.schedule) +
     (s.unknown_s >= 60 ? `<div class="un">немає даних: ${dur(s.unknown_s)}</div>` : "") + `</div>`;
   $("mstats").innerHTML = tile("Село", meta.stats.village) + tile("Дім", meta.stats.home);

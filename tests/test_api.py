@@ -241,6 +241,8 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(v["longest_s"], 2 * 3600)
         self.assertEqual(v["avg_s"], 1.5 * 3600)
         self.assertEqual((h["outages"], h["outage_s"], h["longest_s"]), (1, 3600, 3600))
+        self.assertEqual((v["longest_start"], v["longest_end"]), (k(2026, 2, 1), k(2026, 2, 1, 2)))  # cut at the border
+        self.assertEqual(v["worst_day"], {"date": "2026-02-01", "outage_s": 2 * 3600})
         self.assertGreater(v["light_s"], 0)
         self.assertAlmostEqual(v["light_s"] + v["outage_s"] + v["unknown_s"], m["to"] - m["from"], delta=1)
         self.assertIsNone(v["schedule"])  # no DTEK schedule saved yet

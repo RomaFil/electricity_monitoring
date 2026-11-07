@@ -51,6 +51,36 @@ def _longest(segs, kinds):
     return best
 
 
+def _longest_run(segs, kinds):
+    """(length, start, end) of the longest run of the given kinds; (0, None, None) if there is none."""
+    best = (0.0, None, None)
+    run_start = None
+    for k, a, z in segs:
+        if k in kinds:
+            run_start = a if run_start is None else run_start
+            if z - run_start > best[0]:
+                best = (z - run_start, run_start, z)
+        else:
+            run_start = None
+    return best
+
+
+def worst_day(segs, lo, hi, tz_name, kinds=("outage",)):
+    """The local day of [lo, hi) with the most time in `kinds`: {"date", "outage_s"}, None if there is none."""
+    tz = ZoneInfo(tz_name)
+    day, best = datetime.fromtimestamp(lo, tz).date(), None
+    while True:
+        a = datetime(day.year, day.month, day.day, tzinfo=tz).timestamp()
+        if a >= hi:
+            break
+        z = datetime.combine(day + timedelta(days=1), datetime.min.time(), tz).timestamp()
+        off = sum(min(e, z, hi) - max(s, a, lo) for k, s, e in segs if k in kinds and min(e, z, hi) > max(s, a, lo))
+        if off > 0 and (best is None or off > best["outage_s"]):
+            best = {"date": day.isoformat(), "outage_s": off}
+        day += timedelta(days=1)
+    return best
+
+
 def planned_segments(intervals, lo, hi):
     """Official schedule for [lo, hi): pieces "light" / "off" / "maybe" (intervals from schedule.intervals)."""
     if hi <= lo:
@@ -93,8 +123,10 @@ def outage_summary(segs):
     """Outage statistics over cut timeline pieces: count, total, average, longest, light, time without data."""
     n = sum(1 for k, _, _ in segs if k == "outage")
     off, light = _sum(segs, ("outage",)), _sum(segs, LIGHT)
+    longest, l_start, l_end = _longest_run(segs, ("outage",))
     return {"outages": n, "outage_s": off, "avg_s": off / n if n else None,
-            "longest_s": _longest(segs, ("outage",)), "unknown_s": _sum(segs, ("unknown",)),
+            "longest_s": longest, "longest_start": l_start, "longest_end": l_end,
+            "unknown_s": _sum(segs, ("unknown",)),
             "light_s": light, "light_share": light / (light + off) if light + off else None}
 
 

@@ -335,6 +335,7 @@ def api_events_month(month: str | None = None, c=Depends(con)):
         planned = {r["date"]: schedule.intervals(r["date"], json.loads(r["hours"]), config.TZ_NAME)
                    for r in c.execute("SELECT date, hours FROM schedule_days WHERE source=?", (source,))}
         places[source] = stats.outage_summary(segs)
+        places[source]["worst_day"] = stats.worst_day(segs, lo, hi, config.TZ_NAME)
         places[source]["schedule"] = stats.schedule_compare(segs, planned, lo, hi_full, now, config.TZ_NAME)
     return {"month": month, "from": lo, "to": hi_full, "first_month": first, "this_month": this,
             "counts": counts, "stats": places}
